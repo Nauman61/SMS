@@ -1,0 +1,18 @@
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  background: #F6F1E4;
+}
+* {
+  box-sizing: border-box;
+}
+/* The app was originally built to sit inside a floating card in Claude's
+   artifact viewer. For a full standalone site we drop the rounded card
+   look so it fills the whole browser window. */
+.sms-root {
+  border-radius: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+  min-height: 100vh;
+}
