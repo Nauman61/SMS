@@ -9,6 +9,9 @@ const CLASSES = ["PG","Nursery","Prep","KG","1","2","3","4","5","6","7","8","9",
 const PAPERS_FUND_MONTHS = ["April","August"];
 const ITEM_TYPES = ["Uniform - Summer","Uniform - Winter","Books set","Notebooks","Bag","Shoes","Tie/Belt","Other"];
 const PETTY_SUGGESTIONS = ["Director","School Fund","Stationery","Utilities","Maintenance","Transport","Refreshments","Miscellaneous"];
+const LEDGER_SUGGESTIONS = ["Director","Bank","Vendor","Utility Company","Landlord","School Fund","Contractor","Supplier"];
+const REGULAR_HOURS_PER_DAY = 8;
+const OVERTIME_MULTIPLIER = 1.5;
 
 function uid(prefix) {
   return prefix + "-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -84,6 +87,27 @@ function salaryDueState(sal) {
   const salMonthIdx = MONTHS.indexOf(sal.month);
   if (sal.year < year || (sal.year === year && salMonthIdx < monthIdx)) return "overdue";
   return "due";
+}
+
+function dateMonthYear(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  return { month: MONTHS[d.getMonth()], year: d.getFullYear() };
+}
+
+// Hours worked between two "HH:MM" (24-hour) time strings on the same day.
+function computeHoursFromTimes(checkIn, checkOut) {
+  if (!checkIn || !checkOut) return 0;
+  const [inH, inM] = checkIn.split(":").map(Number);
+  const [outH, outM] = checkOut.split(":").map(Number);
+  let mins = (outH * 60 + outM) - (inH * 60 + inM);
+  if (mins < 0) mins += 24 * 60; // handles an overnight shift
+  return Math.round((mins / 60) * 100) / 100;
+}
+function splitRegularOvertime(totalHrs) {
+  const regular = Math.min(totalHrs, REGULAR_HOURS_PER_DAY);
+  const overtime = Math.max(0, totalHrs - REGULAR_HOURS_PER_DAY);
+  return { regular, overtime };
 }
 
 const STYLES = `
@@ -332,7 +356,10 @@ export default function SchoolManagementSystem() {
   const [items, setItems] = useState([]);
   const [pettyCash, setPettyCash] = useState([]);
   const [salaries, setSalaries] = useState([]);
-  const [settings, setSettings] = useState({ papersFundAmount: 1000, lateFeeAmount: 200, adminPassword: "admin123", staffPassword: "staff123" });
+  const [ledgerEntries, setLedgerEntries] = useState([]);
+  const [studentAttendance, setStudentAttendance] = useState([]);
+  const [staffAttendance, setStaffAttendance] = useState([]);
+  const [settings, setSettings] = useState({ papersFundAmount: 1000, lateFeeAmount: 200, adminPassword: "admin123", staffPassword: "staff123", ledgerAccountantName: "", ledgerTimePeriod: "" });
   const [toast, setToast] = useState(null);
 
   const [staffModal, setStaffModal] = useState(null);
@@ -341,6 +368,8 @@ export default function SchoolManagementSystem() {
   const [itemModal, setItemModal] = useState(null);
   const [pettyModal, setPettyModal] = useState(null);
   const [salaryModal, setSalaryModal] = useState(null);
+  const [ledgerModal, setLedgerModal] = useState(null);
+  const [staffAttModal, setStaffAttModal] = useState(null);
   const [settingsModal, setSettingsModal] = useState(false);
   const [showAdmissionLedger, setShowAdmissionLedger] = useState(false);
   const [overdueModal, setOverdueModal] = useState(false);
@@ -358,17 +387,27 @@ export default function SchoolManagementSystem() {
   const [salaryMonthFilter, setSalaryMonthFilter] = useState(MONTHS[new Date().getMonth()]);
   const [salaryYearFilter, setSalaryYearFilter] = useState(new Date().getFullYear());
   const [salaryStatusFilter, setSalaryStatusFilter] = useState("all");
+  const [attDate, setAttDate] = useState(todayISO());
+  const [attClass, setAttClass] = useState(CLASSES[0]);
+  const [attDraft, setAttDraft] = useState({});
+  const [staffAttStaffId, setStaffAttStaffId] = useState("");
+  const [staffAttMonthFilter, setStaffAttMonthFilter] = useState(MONTHS[new Date().getMonth()]);
+  const [staffAttYearFilter, setStaffAttYearFilter] = useState(new Date().getFullYear());
+
 
   useEffect(() => {
     (async () => {
       try {
-        const [s, st, f, it, pc, sal, cfg] = await Promise.allSettled([
+        const [s, st, f, it, pc, sal, ledg, satt, satt2, cfg] = await Promise.allSettled([
           window.storage.get("sms-staff"),
           window.storage.get("sms-students"),
           window.storage.get("sms-fees"),
           window.storage.get("sms-items"),
           window.storage.get("sms-pettycash"),
           window.storage.get("sms-salaries"),
+          window.storage.get("sms-ledger"),
+          window.storage.get("sms-student-attendance"),
+          window.storage.get("sms-staff-attendance"),
           window.storage.get("sms-settings"),
         ]);
         if (s.status === "fulfilled" && s.value) setStaff(JSON.parse(s.value.value));
@@ -377,6 +416,9 @@ export default function SchoolManagementSystem() {
         if (it.status === "fulfilled" && it.value) setItems(JSON.parse(it.value.value));
         if (pc.status === "fulfilled" && pc.value) setPettyCash(JSON.parse(pc.value.value));
         if (sal.status === "fulfilled" && sal.value) setSalaries(JSON.parse(sal.value.value));
+        if (ledg.status === "fulfilled" && ledg.value) setLedgerEntries(JSON.parse(ledg.value.value));
+        if (satt.status === "fulfilled" && satt.value) setStudentAttendance(JSON.parse(satt.value.value));
+        if (satt2.status === "fulfilled" && satt2.value) setStaffAttendance(JSON.parse(satt2.value.value));
         if (cfg.status === "fulfilled" && cfg.value) setSettings((prev) => ({ ...prev, ...JSON.parse(cfg.value.value) }));
       } catch (e) { console.error("Load error", e); }
       setLoading(false);
@@ -392,6 +434,9 @@ export default function SchoolManagementSystem() {
   function saveItems(next) { setItems(next); persist("sms-items", next); }
   function savePettyCash(next) { setPettyCash(next); persist("sms-pettycash", next); }
   function saveSalaries(next) { setSalaries(next); persist("sms-salaries", next); }
+  function saveLedger(next) { setLedgerEntries(next); persist("sms-ledger", next); }
+  function saveStudentAttendance(next) { setStudentAttendance(next); persist("sms-student-attendance", next); }
+  function saveStaffAttendance(next) { setStaffAttendance(next); persist("sms-staff-attendance", next); }
   function saveSettings(next) { setSettings(next); persist("sms-settings", next); }
 
   function showToast(msg) { setToast(msg); setTimeout(() => setToast(null), 7000); }
@@ -478,16 +523,71 @@ export default function SchoolManagementSystem() {
       if (st.status !== "active") return;
       const key = st.id + "|" + month + "|" + year;
       if (existingKeys.has(key)) return;
-      newRecords.push({
-        id: uid("sal"), staffId: st.id, month, year,
-        baseSalary: Number(st.salary) || 0, bonus: 0, deduction: 0,
-        paidAmount: 0, status: "unpaid", paidDate: "", comments: "",
-        ...stampNew(currentUser),
-      });
+
+      const monthAttendance = staffAttendance.filter((a) => a.staffId === st.id && a.month === month && a.year === year);
+      if (Number(st.hourlyRate) > 0 && monthAttendance.length > 0) {
+        const hourlyRate = Number(st.hourlyRate) || 0;
+        const dailyRate = hourlyRate * REGULAR_HOURS_PER_DAY;
+        const regularHrs = monthAttendance.reduce((s, a) => s + (Number(a.regularHrs) || 0), 0);
+        const overtimeHrs = monthAttendance.reduce((s, a) => s + (Number(a.overtimeHrs) || 0), 0);
+        const lwpDays = monthAttendance.filter((a) => a.lwp).length;
+        const absentDays = monthAttendance.filter((a) => a.absent).length;
+        const advanceSum = monthAttendance.reduce((s, a) => s + (Number(a.advance) || 0), 0);
+        const otherSum = monthAttendance.reduce((s, a) => s + (Number(a.other) || 0), 0);
+        const regularPay = Math.round(regularHrs * hourlyRate);
+        const overtimePay = Math.round(overtimeHrs * hourlyRate * OVERTIME_MULTIPLIER);
+        const lwpDeduction = Math.round(lwpDays * dailyRate);
+        newRecords.push({
+          id: uid("sal"), staffId: st.id, month, year,
+          baseSalary: regularPay + overtimePay, bonus: 0, deduction: Math.round(lwpDeduction + advanceSum + otherSum),
+          paidAmount: 0, status: "unpaid", paidDate: "",
+          comments: `Auto-calculated from attendance: ${regularHrs}h regular + ${overtimeHrs}h overtime, ${lwpDays} LWP day(s), ${absentDays} absent day(s), advance ${currency(advanceSum)}, other ${currency(otherSum)}.`,
+          ...stampNew(currentUser),
+        });
+      } else {
+        newRecords.push({
+          id: uid("sal"), staffId: st.id, month, year,
+          baseSalary: Number(st.salary) || 0, bonus: 0, deduction: 0,
+          paidAmount: 0, status: "unpaid", paidDate: "", comments: "",
+          ...stampNew(currentUser),
+        });
+      }
     });
     if (newRecords.length) saveSalaries([...salaries, ...newRecords]);
     return newRecords.length;
   }
+
+  function upsertLedger(record) {
+    const prior = ledgerEntries.find((l) => l.id === record.id);
+    const final = prior ? { ...prior, ...record, ...stampEdit(currentUser) } : { ...record, ...stampNew(currentUser) };
+    saveLedger(prior ? ledgerEntries.map((l) => (l.id === final.id ? final : l)) : [...ledgerEntries, final]);
+    setLedgerModal(null);
+  }
+  function deleteLedgerEntry(id) { saveLedger(ledgerEntries.filter((l) => l.id !== id)); }
+
+  function saveStudentAttendanceBulk(date, cls, draft) {
+    const activeInClass = students.filter((s) => s.class === cls && s.status === "active");
+    let next = [...studentAttendance];
+    activeInClass.forEach((st) => {
+      const statusVal = draft[st.id] || "present";
+      const idx = next.findIndex((a) => a.studentId === st.id && a.date === date);
+      if (idx >= 0) {
+        next[idx] = { ...next[idx], status: statusVal, ...stampEdit(currentUser) };
+      } else {
+        next.push({ id: uid("att"), studentId: st.id, date, status: statusVal, comments: "", ...stampNew(currentUser) });
+      }
+    });
+    saveStudentAttendance(next);
+  }
+  function deleteStudentAttendanceEntry(id) { saveStudentAttendance(studentAttendance.filter((a) => a.id !== id)); }
+
+  function upsertStaffAttendance(record) {
+    const prior = staffAttendance.find((a) => a.id === record.id);
+    const final = prior ? { ...prior, ...record, ...stampEdit(currentUser) } : { ...record, ...stampNew(currentUser) };
+    saveStaffAttendance(prior ? staffAttendance.map((a) => (a.id === final.id ? final : a)) : [...staffAttendance, final]);
+    setStaffAttModal(null);
+  }
+  function deleteStaffAttendanceEntry(id) { saveStaffAttendance(staffAttendance.filter((a) => a.id !== id)); }
 
   function generateMonthlyFees() {
     const month = MONTHS[new Date().getMonth()];
@@ -608,6 +708,38 @@ export default function SchoolManagementSystem() {
   const pettyReceivedMonth = pettyForMonth.filter((p) => p.type === "receipt").reduce((s, p) => s + (Number(p.amount) || 0), 0);
   const pettySpentMonth = pettyForMonth.filter((p) => p.type === "expense").reduce((s, p) => s + (Number(p.amount) || 0), 0);
 
+  const sortedLedger = [...ledgerEntries].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  let runDebit = 0, runCredit = 0;
+  const ledgerWithRunning = sortedLedger.map((l) => {
+    runDebit += Number(l.debit) || 0;
+    runCredit += Number(l.credit) || 0;
+    return { ...l, totalDebit: runDebit, totalCredit: runCredit };
+  });
+  const ledgerTotalDebit = ledgerEntries.reduce((s, l) => s + (Number(l.debit) || 0), 0);
+  const ledgerTotalCredit = ledgerEntries.reduce((s, l) => s + (Number(l.credit) || 0), 0);
+  const ledgerTotalNet = ledgerTotalCredit - ledgerTotalDebit;
+
+  const classStudentsForAttendance = students.filter((s) => s.class === attClass && s.status === "active");
+  const attendanceForDate = studentAttendance.filter((a) => a.date === attDate);
+  const attendanceForDateByStudent = Object.fromEntries(attendanceForDate.map((a) => [a.studentId, a]));
+  const attPresentCount = classStudentsForAttendance.filter((s) => (attendanceForDateByStudent[s.id]?.status || "present") === "present").length;
+  const attAbsentCount = classStudentsForAttendance.filter((s) => attendanceForDateByStudent[s.id]?.status === "absent").length;
+  const attLeaveCount = classStudentsForAttendance.filter((s) => attendanceForDateByStudent[s.id]?.status === "leave").length;
+
+  const effectiveStaffAttId = staffAttStaffId || (staff[0] ? staff[0].id : "");
+  const staffAttForStaff = staffAttendance
+    .filter((a) => a.staffId === effectiveStaffAttId && a.month === staffAttMonthFilter && a.year === Number(staffAttYearFilter))
+    .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  const staffAttTotals = staffAttForStaff.reduce((acc, a) => {
+    acc.regular += Number(a.regularHrs) || 0;
+    acc.overtime += Number(a.overtimeHrs) || 0;
+    acc.absent += a.absent ? 1 : 0;
+    acc.lwp += a.lwp ? 1 : 0;
+    acc.advance += Number(a.advance) || 0;
+    acc.other += Number(a.other) || 0;
+    return acc;
+  }, { regular: 0, overtime: 0, absent: 0, lwp: 0, advance: 0, other: 0 });
+
   function downloadWorkbook(sheets, filename) {
     const wb = XLSX.utils.book_new();
     sheets.forEach(({ name, rows }) => {
@@ -681,6 +813,36 @@ export default function SchoolManagementSystem() {
   }
   function exportSalaries() { downloadWorkbook([{ name: "Staff Salary", rows: salaries.map(salaryRowExport) }], "staff-salary.xlsx"); }
 
+  function ledgerRowExport(l) {
+    return {
+      Date: l.date, Description: l.description, "Post Reference": l.postReference,
+      Debit: l.debit || 0, Credit: l.credit || 0, Comments: l.comments || "",
+      "Entered By": l.enteredBy || "", "Entered At": formatDateTime(l.enteredAt),
+      "Last Edited By": l.editedBy || "", "Last Edited At": formatDateTime(l.editedAt),
+    };
+  }
+  function exportLedger() { downloadWorkbook([{ name: "Ledger Report", rows: ledgerWithRunning.map(ledgerRowExport) }], "ledger-report.xlsx"); }
+
+  function studentAttRowExport(a) {
+    const st = studentMap[a.studentId];
+    return {
+      Date: a.date, Student: st ? st.name : "(removed student)", Class: st ? (st.class + (st.section ? "-" + st.section : "")) : "",
+      Status: a.status, Comments: a.comments || "", "Entered By": a.enteredBy || "", "Entered At": formatDateTime(a.enteredAt),
+    };
+  }
+  function exportStudentAttendance() { downloadWorkbook([{ name: "Student Attendance", rows: studentAttendance.map(studentAttRowExport) }], "student-attendance.xlsx"); }
+
+  function staffAttRowExport(a) {
+    const st = staffMap[a.staffId];
+    return {
+      Date: a.date, Staff: st ? st.name : "(removed staff)", "Check In": a.checkIn || "", "Check Out": a.checkOut || "",
+      "Regular Hrs": a.regularHrs || 0, "Overtime Hrs": a.overtimeHrs || 0, Absent: a.absent ? "Yes" : "No", LWP: a.lwp ? "Yes" : "No",
+      Advance: a.advance || 0, Other: a.other || 0, "Total Hours": (Number(a.regularHrs) || 0) + (Number(a.overtimeHrs) || 0),
+      Comments: a.comments || "", "Entered By": a.enteredBy || "", "Entered At": formatDateTime(a.enteredAt),
+    };
+  }
+  function exportStaffAttendance() { downloadWorkbook([{ name: "Staff Attendance", rows: staffAttendance.map(staffAttRowExport) }], "staff-attendance.xlsx"); }
+
   function exportFullReport() {
     const overdueRows = overdueStudentIds.map((sid) => {
       const st = studentMap[sid];
@@ -701,6 +863,9 @@ export default function SchoolManagementSystem() {
       { name: "Uniforms and Books", rows: items.map(itemRowExport) },
       { name: "Petty Cash", rows: pettyCash.map(pettyRowExport) },
       { name: "Staff Salary", rows: salaries.map(salaryRowExport) },
+      { name: "Ledger Report", rows: ledgerWithRunning.map(ledgerRowExport) },
+      { name: "Student Attendance", rows: studentAttendance.map(studentAttRowExport) },
+      { name: "Staff Attendance", rows: staffAttendance.map(staffAttRowExport) },
       { name: "Overdue Summary", rows: overdueRows },
     ], "habib-shining-star-school-report.xlsx");
   }
@@ -730,6 +895,9 @@ export default function SchoolManagementSystem() {
             { key: "items", label: "Uniforms & books", i: "05" },
             { key: "pettycash", label: "Petty cash", i: "06" },
             { key: "salary", label: "Staff salary", i: "07" },
+            { key: "ledger", label: "Ledger report", i: "08" },
+            { key: "studentattendance", label: "Student attendance", i: "09" },
+            { key: "staffattendance", label: "Staff attendance", i: "10" },
           ].map((t) => (
             <div key={t.key} className={"sms-tab" + (page === t.key ? " active" : "")} onClick={() => setPage(t.key)}>
               <span className="sms-tab-index">{t.i}</span>
@@ -1176,6 +1344,194 @@ export default function SchoolManagementSystem() {
             </div>
           </>
         )}
+
+        {page === "ledger" && (
+          <>
+            <div className="sms-header">
+              <h1 className="sms-serif">Ledger report</h1>
+              <div className="sms-header-actions sms-no-print">
+                <span className="sms-datestamp">{ledgerEntries.length} entries</span>
+                <button className="sms-btn secondary" onClick={() => window.print()}>🖨 Print</button>
+                <button className="sms-btn secondary" onClick={exportLedger}>⬇ Export Excel (all data)</button>
+              </div>
+            </div>
+            <div className="sms-content">
+              <div className="sms-ledger-report-head">
+                <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 16 }}>
+                  <div>
+                    <div className="school sms-serif">{SCHOOL_NAME}</div>
+                    <div className="addr">{SCHOOL_ADDRESS}</div>
+                  </div>
+                  <div className="sms-no-print" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    <Field label="Accountant name">
+                      <input className="sms-input" value={settings.ledgerAccountantName} onChange={(e) => saveSettings({ ...settings, ledgerAccountantName: e.target.value })} placeholder="e.g. Muhammad Nauman Habib" />
+                    </Field>
+                    <Field label="Time period">
+                      <input className="sms-input" value={settings.ledgerTimePeriod} onChange={(e) => saveSettings({ ...settings, ledgerTimePeriod: e.target.value })} placeholder="e.g. 2025 - 2026" />
+                    </Field>
+                  </div>
+                </div>
+                <div className="meta">
+                  Accountant: {settings.ledgerAccountantName || "—"} · Period: {settings.ledgerTimePeriod || "—"} · Generated {formatDateTime(new Date().toISOString())}
+                </div>
+              </div>
+
+              <div className="sms-cards-row three">
+                <div className="sms-card warn"><div className="sms-card-label">Total debit</div><div className="sms-card-value rust">{currency(ledgerTotalDebit)}</div></div>
+                <div className="sms-card"><div className="sms-card-label">Total credit</div><div className="sms-card-value green">{currency(ledgerTotalCredit)}</div></div>
+                <div className={"sms-card" + (ledgerTotalNet < 0 ? " warn" : "")}><div className="sms-card-label">Total net</div><div className={"sms-card-value" + (ledgerTotalNet < 0 ? " rust" : " green")}>{ledgerTotalNet < 0 ? `(${currency(Math.abs(ledgerTotalNet))})` : currency(ledgerTotalNet)}</div></div>
+              </div>
+
+              <div className="sms-toolbar sms-no-print">
+                <button className="sms-btn" onClick={() => setLedgerModal({})}>+ Add ledger entry</button>
+              </div>
+
+              <div className="sms-ledger-page">
+                <table className="sms-ledger-table">
+                  <thead>
+                    <tr><th>Date</th><th>Description</th><th>Post reference</th><th>Debit</th><th>Credit</th><th>Total debit</th><th>Total credit</th><th>Entered by</th><th className="sms-no-print"></th></tr>
+                  </thead>
+                  <tbody>
+                    {ledgerWithRunning.map((l) => (
+                      <tr key={l.id}>
+                        <td>{l.date}</td>
+                        <td>{l.description}{l.comments && <span className="sms-subtext">{l.comments}</span>}</td>
+                        <td>{l.postReference}</td>
+                        <td>{l.debit > 0 ? currency(l.debit) : "—"}</td>
+                        <td>{l.credit > 0 ? currency(l.credit) : "—"}</td>
+                        <td>{currency(l.totalDebit)}</td>
+                        <td>{currency(l.totalCredit)}</td>
+                        <td className="sms-subtext">{l.enteredBy || "—"}<br />{formatDateTime(l.enteredAt)}</td>
+                        <td className="sms-no-print" style={{ display: "flex", gap: 6 }}>
+                          {isAdmin ? (<>
+                            <button className="sms-btn secondary small" onClick={() => setLedgerModal(l)}>Update</button>
+                            <button className="sms-btn danger small" onClick={() => deleteLedgerEntry(l.id)}>Delete</button>
+                          </>) : <span className="sms-locked">Admin only</span>}
+                        </td>
+                      </tr>
+                    ))}
+                    {ledgerWithRunning.length === 0 && <tr><td colSpan="9" className="sms-empty">No ledger entries yet.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        )}
+
+        {page === "studentattendance" && (
+          <>
+            <div className="sms-header">
+              <h1 className="sms-serif">Student attendance</h1>
+              <div className="sms-header-actions"><span className="sms-datestamp">{studentAttendance.length} records</span><button className="sms-btn secondary" onClick={exportStudentAttendance}>⬇ Export Excel (all data)</button></div>
+            </div>
+            <div className="sms-content">
+              <div className="sms-toolbar">
+                <Field label="Date"><input className="sms-input" type="date" value={attDate} onChange={(e) => { setAttDate(e.target.value); setAttDraft({}); }} /></Field>
+                <Field label="Class"><select className="sms-select" value={attClass} onChange={(e) => { setAttClass(e.target.value); setAttDraft({}); }}>{CLASSES.map((c) => <option key={c} value={c}>{c}</option>)}</select></Field>
+              </div>
+
+              <div className="sms-cards-row three">
+                <div className="sms-card"><div className="sms-card-label">Present</div><div className="sms-card-value green">{attPresentCount}</div></div>
+                <div className="sms-card"><div className="sms-card-label">Absent</div><div className="sms-card-value rust">{attAbsentCount}</div></div>
+                <div className="sms-card"><div className="sms-card-label">Leave</div><div className="sms-card-value">{attLeaveCount}</div></div>
+              </div>
+
+              <div className="sms-section-title">Mark attendance <span className="sms-tag">{attClass} · {attDate}</span></div>
+              <div className="sms-toolbar">
+                <button className="sms-btn secondary small" onClick={() => {
+                  const all = {}; classStudentsForAttendance.forEach((s) => { all[s.id] = "present"; }); setAttDraft(all);
+                }}>Mark all present</button>
+              </div>
+              <div className="sms-ledger-page">
+                <table className="sms-table">
+                  <thead><tr><th>Name</th><th>Roll no.</th><th>Status</th></tr></thead>
+                  <tbody>
+                    {classStudentsForAttendance.map((s) => {
+                      const existing = attendanceForDateByStudent[s.id];
+                      const current = attDraft[s.id] || (existing ? existing.status : "present");
+                      return (
+                        <tr key={s.id}>
+                          <td>{s.name}</td>
+                          <td className="sms-mono">{s.rollNo}</td>
+                          <td>
+                            <select className="sms-select" value={current} onChange={(e) => setAttDraft({ ...attDraft, [s.id]: e.target.value })}>
+                              <option value="present">Present</option>
+                              <option value="absent">Absent</option>
+                              <option value="leave">Leave</option>
+                            </select>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {classStudentsForAttendance.length === 0 && <tr><td colSpan="3" className="sms-empty">No active students in this class.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+              {classStudentsForAttendance.length > 0 && (
+                <div className="sms-toolbar" style={{ marginTop: 12 }}>
+                  <button className="sms-btn" onClick={() => { saveStudentAttendanceBulk(attDate, attClass, attDraft); setAttDraft({}); }}>Save attendance for {attDate}</button>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {page === "staffattendance" && (
+          <>
+            <div className="sms-header">
+              <h1 className="sms-serif">Staff attendance</h1>
+              <div className="sms-header-actions"><span className="sms-datestamp">{staffAttendance.length} records</span><button className="sms-btn secondary" onClick={exportStaffAttendance}>⬇ Export Excel (all data)</button></div>
+            </div>
+            <div className="sms-content">
+              <div className="sms-toolbar">
+                <Field label="Staff member">
+                  <select className="sms-select" value={effectiveStaffAttId} onChange={(e) => setStaffAttStaffId(e.target.value)}>
+                    {staff.map((s) => <option key={s.id} value={s.id}>{s.name} — {s.role}</option>)}
+                  </select>
+                </Field>
+                <Field label="Month"><select className="sms-select" value={staffAttMonthFilter} onChange={(e) => setStaffAttMonthFilter(e.target.value)}>{MONTHS.map((m) => <option key={m}>{m}</option>)}</select></Field>
+                <Field label="Year"><input className="sms-input" type="number" style={{ width: 90 }} value={staffAttYearFilter} onChange={(e) => setStaffAttYearFilter(e.target.value)} /></Field>
+                <button className="sms-btn" onClick={() => setStaffAttModal({ staffId: effectiveStaffAttId, date: todayISO() })} disabled={!effectiveStaffAttId}>+ Add day entry</button>
+              </div>
+
+              <div className="sms-cards-row">
+                <div className="sms-card"><div className="sms-card-label">Regular hrs</div><div className="sms-card-value">{staffAttTotals.regular}</div></div>
+                <div className="sms-card"><div className="sms-card-label">Overtime hrs</div><div className="sms-card-value">{staffAttTotals.overtime}</div></div>
+                <div className="sms-card"><div className="sms-card-label">Absent / LWP days</div><div className="sms-card-value rust">{staffAttTotals.absent} / {staffAttTotals.lwp}</div></div>
+                <div className="sms-card"><div className="sms-card-label">Advance + other</div><div className="sms-card-value">{currency(staffAttTotals.advance + staffAttTotals.other)}</div></div>
+              </div>
+
+              <div className="sms-ledger-page">
+                <table className="sms-table">
+                  <thead><tr><th>Date</th><th>Check in</th><th>Check out</th><th>Regular hrs</th><th>Overtime hrs</th><th>Absent</th><th>LWP</th><th>Advance</th><th>Other</th><th>Total hrs</th><th></th></tr></thead>
+                  <tbody>
+                    {staffAttForStaff.map((a) => (
+                      <tr key={a.id}>
+                        <td>{a.date}</td>
+                        <td className="sms-mono">{a.checkIn || "—"}</td>
+                        <td className="sms-mono">{a.checkOut || "—"}</td>
+                        <td className="sms-mono">{a.regularHrs || 0}</td>
+                        <td className="sms-mono">{a.overtimeHrs || 0}</td>
+                        <td>{a.absent ? <span className="sms-pill unpaid">Yes</span> : "—"}</td>
+                        <td>{a.lwp ? <span className="sms-pill unpaid">Yes</span> : "—"}</td>
+                        <td className="sms-mono">{a.advance > 0 ? currency(a.advance) : "—"}</td>
+                        <td className="sms-mono">{a.other > 0 ? currency(a.other) : "—"}</td>
+                        <td className="sms-mono">{(Number(a.regularHrs) || 0) + (Number(a.overtimeHrs) || 0)}</td>
+                        <td style={{ display: "flex", gap: 6 }}>
+                          {isAdmin ? (<>
+                            <button className="sms-btn secondary small" onClick={() => setStaffAttModal(a)}>Update</button>
+                            <button className="sms-btn danger small" onClick={() => deleteStaffAttendanceEntry(a.id)}>Delete</button>
+                          </>) : <span className="sms-locked">Admin only</span>}
+                        </td>
+                      </tr>
+                    ))}
+                    {staffAttForStaff.length === 0 && <tr><td colSpan="11" className="sms-empty">No attendance entries for this staff member this month.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        )}
       </main>
 
       {staffModal && <StaffForm initial={staffModal} onCancel={() => setStaffModal(null)} onSave={upsertStaff} />}
@@ -1184,6 +1540,8 @@ export default function SchoolManagementSystem() {
       {itemModal && <ItemForm initial={itemModal} students={students} onCancel={() => setItemModal(null)} onSave={upsertItem} />}
       {pettyModal && <PettyForm initial={pettyModal} onCancel={() => setPettyModal(null)} onSave={upsertPetty} />}
       {salaryModal && <SalaryForm initial={salaryModal} staff={staff} onCancel={() => setSalaryModal(null)} onSave={upsertSalary} />}
+      {ledgerModal && <LedgerForm initial={ledgerModal} onCancel={() => setLedgerModal(null)} onSave={upsertLedger} />}
+      {staffAttModal && <StaffAttendanceForm initial={staffAttModal} staff={staff} onCancel={() => setStaffAttModal(null)} onSave={upsertStaffAttendance} />}
       {settingsModal && isAdmin && (
         <SettingsForm settings={settings} onCancel={() => setSettingsModal(false)} onSave={(s) => { saveSettings(s); setSettingsModal(false); }} />
       )}
@@ -1239,8 +1597,8 @@ function StaffForm({ initial, onCancel, onSave }) {
   const [form, setForm] = useState({
     id: initial.id || uid("staff"), name: initial.name || "", role: initial.role || "Teacher",
     subject: initial.subject || "", phone: initial.phone || "", email: initial.email || "",
-    joinDate: initial.joinDate || todayISO(), salary: initial.salary || "", status: initial.status || "active",
-    inactiveReason: initial.inactiveReason || "",
+    joinDate: initial.joinDate || todayISO(), salary: initial.salary || "", hourlyRate: initial.hourlyRate || "",
+    status: initial.status || "active", inactiveReason: initial.inactiveReason || "",
   });
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const needsReason = form.status === "inactive";
@@ -1248,7 +1606,7 @@ function StaffForm({ initial, onCancel, onSave }) {
   return (
     <Modal title={initial.id ? "Edit staff record" : "Add staff record"} onClose={onCancel} footer={<>
       <button className="sms-btn secondary" onClick={onCancel}>Cancel</button>
-      <button className="sms-btn" disabled={!valid} onClick={() => onSave({ ...form, salary: Number(form.salary) || 0 })}>Save record</button>
+      <button className="sms-btn" disabled={!valid} onClick={() => onSave({ ...form, salary: Number(form.salary) || 0, hourlyRate: Number(form.hourlyRate) || 0 })}>Save record</button>
     </>}>
       <Field label="Full name"><input className="sms-input" value={form.name} onChange={set("name")} placeholder="Anita Sharma" /></Field>
       <div className="sms-field-row">
@@ -1265,6 +1623,10 @@ function StaffForm({ initial, onCancel, onSave }) {
         <Field label="Joining date"><input className="sms-input" type="date" value={form.joinDate} onChange={set("joinDate")} /></Field>
         <Field label="Monthly salary"><input className="sms-input" type="number" value={form.salary} onChange={set("salary")} placeholder="45000" /></Field>
       </div>
+      <Field label="Hourly rate (optional)">
+        <input className="sms-input" type="number" value={form.hourlyRate} onChange={set("hourlyRate")} placeholder="e.g. 200" />
+      </Field>
+      <div className="sms-subtext" style={{ marginTop: -6 }}>If set and this staff member has check-in/check-out attendance logged for a month, "Generate this month's salaries" will calculate their pay from actual hours worked instead of the flat monthly salary above.</div>
       <Field label="Status"><select className="sms-select" value={form.status} onChange={set("status")}><option value="active">Active</option><option value="inactive">Inactive</option></select></Field>
       {needsReason && (
         <Field label="Reason for inactive status (required)">
@@ -1560,6 +1922,104 @@ function SalaryForm({ initial, staff, onCancel, onSave }) {
         <Field label="Payment date"><input className="sms-input" type="date" value={form.paidDate} onChange={set("paidDate")} /></Field>
       </div>
       <Field label="Comments (optional)"><textarea value={form.comments} onChange={set("comments")} placeholder="Any notes about this payment…" /></Field>
+    </Modal>
+  );
+}
+
+function LedgerForm({ initial, onCancel, onSave }) {
+  const isEdit = !!initial.id;
+  const [form, setForm] = useState({
+    id: initial.id || uid("ledg"), date: initial.date || todayISO(), type: initial.credit > 0 && !(initial.debit > 0) ? "credit" : "debit",
+    description: initial.description || "", postReference: initial.postReference || "",
+    amount: initial.debit > 0 ? initial.debit : (initial.credit > 0 ? initial.credit : ""),
+    comments: initial.comments || "",
+  });
+  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  const valid = form.description.trim().length > 0 && Number(form.amount) > 0;
+  function handleSave() {
+    const amt = Number(form.amount) || 0;
+    onSave({
+      id: form.id, date: form.date, description: form.description, postReference: form.postReference,
+      debit: form.type === "debit" ? amt : 0, credit: form.type === "credit" ? amt : 0, comments: form.comments,
+    });
+  }
+  return (
+    <Modal title={isEdit ? "Update ledger entry" : "Add ledger entry"} onClose={onCancel} footer={<>
+      <button className="sms-btn secondary" onClick={onCancel}>Cancel</button>
+      <button className="sms-btn" disabled={!valid} onClick={handleSave}>Save entry</button>
+    </>}>
+      <div className="sms-role-toggle">
+        <button type="button" className={"sms-role-btn" + (form.type === "debit" ? " active" : "")} onClick={() => setForm({ ...form, type: "debit" })}>Debit (money out)</button>
+        <button type="button" className={"sms-role-btn" + (form.type === "credit" ? " active" : "")} onClick={() => setForm({ ...form, type: "credit" })}>Credit (money in)</button>
+      </div>
+      <Field label="Date"><input className="sms-input" type="date" value={form.date} onChange={set("date")} /></Field>
+      <Field label="Description"><input className="sms-input" value={form.description} onChange={set("description")} placeholder="e.g. Electricity bill Jan to May" /></Field>
+      <Field label="Post reference (source / to whom)">
+        <input className="sms-input" list="ledger-suggestions" value={form.postReference} onChange={set("postReference")} placeholder="Director" />
+        <datalist id="ledger-suggestions">{LEDGER_SUGGESTIONS.map((s) => <option key={s} value={s} />)}</datalist>
+      </Field>
+      <Field label="Amount"><input className="sms-input" type="number" value={form.amount} onChange={set("amount")} placeholder="5000" /></Field>
+      <Field label="Comments (optional)"><textarea value={form.comments} onChange={set("comments")} placeholder="Any notes…" /></Field>
+    </Modal>
+  );
+}
+
+function StaffAttendanceForm({ initial, staff, onCancel, onSave }) {
+  const isEdit = !!initial.id;
+  const firstStaff = staff[0];
+  const [form, setForm] = useState({
+    id: initial.id || uid("satt"), staffId: initial.staffId || (firstStaff ? firstStaff.id : ""),
+    date: initial.date || todayISO(), checkIn: initial.checkIn || "", checkOut: initial.checkOut || "",
+    absent: initial.absent || false, lwp: initial.lwp || false,
+    advance: initial.advance ?? 0, other: initial.other ?? 0, comments: initial.comments || "",
+  });
+  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  const setBool = (k) => (e) => setForm({ ...form, [k]: e.target.checked });
+
+  const totalHrs = form.absent ? 0 : computeHoursFromTimes(form.checkIn, form.checkOut);
+  const { regular, overtime } = splitRegularOvertime(totalHrs);
+
+  function handleSave() {
+    const d = new Date(form.date);
+    onSave({
+      ...form, month: MONTHS[d.getMonth()], year: d.getFullYear(),
+      regularHrs: regular, overtimeHrs: overtime,
+      advance: Number(form.advance) || 0, other: Number(form.other) || 0,
+      checkIn: form.absent ? "" : form.checkIn, checkOut: form.absent ? "" : form.checkOut,
+    });
+  }
+  const valid = !!form.staffId && !!form.date;
+
+  return (
+    <Modal title={isEdit ? "Update attendance entry" : "Add attendance entry"} wide onClose={onCancel} footer={<>
+      <button className="sms-btn secondary" onClick={onCancel}>Cancel</button>
+      <button className="sms-btn" disabled={!valid} onClick={handleSave}>Save entry</button>
+    </>}>
+      <Field label="Staff member">
+        <select className="sms-select" value={form.staffId} onChange={set("staffId")} disabled={isEdit}>
+          {staff.map((s) => <option key={s.id} value={s.id}>{s.name} — {s.role}</option>)}
+        </select>
+      </Field>
+      <Field label="Date"><input className="sms-input" type="date" value={form.date} onChange={set("date")} /></Field>
+
+      <div className="sms-checkbox-row"><input type="checkbox" checked={form.absent} onChange={setBool("absent")} id="absentday" /><label htmlFor="absentday">Absent this day (no check-in/check-out)</label></div>
+
+      {!form.absent && (
+        <div className="sms-field-row">
+          <Field label="Check-in time"><input className="sms-input" type="time" value={form.checkIn} onChange={set("checkIn")} /></Field>
+          <Field label="Check-out time"><input className="sms-input" type="time" value={form.checkOut} onChange={set("checkOut")} /></Field>
+        </div>
+      )}
+      <div className="sms-computed">
+        Total hours {totalHrs} = regular {regular}h + overtime {overtime}h (regular day is capped at {REGULAR_HOURS_PER_DAY}h, rest counts as overtime)
+      </div>
+
+      <div className="sms-checkbox-row"><input type="checkbox" checked={form.lwp} onChange={setBool("lwp")} id="lwpday" /><label htmlFor="lwpday">Leave without pay (L.W.P) — deduct a day's pay</label></div>
+      <div className="sms-field-row">
+        <Field label="Advance (optional)"><input className="sms-input" type="number" value={form.advance} onChange={set("advance")} placeholder="0" /></Field>
+        <Field label="Other deduction (optional)"><input className="sms-input" type="number" value={form.other} onChange={set("other")} placeholder="0" /></Field>
+      </div>
+      <Field label="Comments (optional)"><textarea value={form.comments} onChange={set("comments")} placeholder="Any notes…" /></Field>
     </Modal>
   );
 }
