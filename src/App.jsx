@@ -12,6 +12,18 @@ const PETTY_SUGGESTIONS = ["Director","School Fund","Stationery","Utilities","Ma
 const LEDGER_SUGGESTIONS = ["Director","Bank","Vendor","Utility Company","Landlord","School Fund","Contractor","Supplier"];
 const REGULAR_HOURS_PER_DAY = 8;
 const OVERTIME_MULTIPLIER = 1.5;
+const ALL_TABS = [
+  { key: "dashboard", label: "Dashboard", i: "01" },
+  { key: "staff", label: "Staff records", i: "02" },
+  { key: "admissions", label: "Admissions", i: "03" },
+  { key: "fees", label: "Fee ledger", i: "04" },
+  { key: "items", label: "Uniforms & books", i: "05" },
+  { key: "pettycash", label: "Petty cash", i: "06" },
+  { key: "salary", label: "Staff salary", i: "07" },
+  { key: "ledger", label: "Ledger report", i: "08" },
+  { key: "studentattendance", label: "Student attendance", i: "09" },
+  { key: "staffattendance", label: "Staff attendance", i: "10" },
+];
 
 function uid(prefix) {
   return prefix + "-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -359,7 +371,7 @@ export default function SchoolManagementSystem() {
   const [ledgerEntries, setLedgerEntries] = useState([]);
   const [studentAttendance, setStudentAttendance] = useState([]);
   const [staffAttendance, setStaffAttendance] = useState([]);
-  const [settings, setSettings] = useState({ papersFundAmount: 1000, lateFeeAmount: 200, adminPassword: "admin123", staffPassword: "staff123", ledgerAccountantName: "", ledgerTimePeriod: "" });
+  const [settings, setSettings] = useState({ papersFundAmount: 1000, lateFeeAmount: 200, adminPassword: "admin123", staffPassword: "staff123", ledgerAccountantName: "", ledgerTimePeriod: "", staffTabAccess: {} });
   const [toast, setToast] = useState(null);
 
   const [staffModal, setStaffModal] = useState(null);
@@ -442,6 +454,13 @@ export default function SchoolManagementSystem() {
   function showToast(msg) { setToast(msg); setTimeout(() => setToast(null), 7000); }
 
   const isAdmin = currentUser && currentUser.role === "admin";
+
+  useEffect(() => {
+    if (currentUser && !isAdmin && page !== "dashboard" && settings.staffTabAccess?.[page] === false) {
+      setPage("dashboard");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser, isAdmin, page, settings.staffTabAccess]);
 
   function upsertStaff(record) {
     const exists = staff.some((s) => s.id === record.id);
@@ -652,8 +671,12 @@ export default function SchoolManagementSystem() {
     return d.getMonth() === new Date().getMonth() && d.getFullYear() === new Date().getFullYear();
   };
   const itemsThisMonth = items.filter((i) => isSameMonth(i.issueDate));
-  const uniformStudentsThisMonth = new Set(itemsThisMonth.filter((i) => i.item.startsWith("Uniform")).map((i) => i.studentId)).size;
-  const bookStudentsThisMonth = new Set(itemsThisMonth.filter((i) => i.item === "Books set" || i.item === "Notebooks").map((i) => i.studentId)).size;
+  const uniformCollectedThisMonth = itemsThisMonth.filter((i) => i.item.startsWith("Uniform")).reduce((s, i) => s + (Number(i.paidAmount) || 0), 0);
+  const bookCollectedThisMonth = itemsThisMonth.filter((i) => i.item === "Books set" || i.item === "Notebooks").reduce((s, i) => s + (Number(i.paidAmount) || 0), 0);
+  const todayStr = todayISO();
+  const staffAttToday = staffAttendance.filter((a) => a.date === todayStr);
+  const staffPresentToday = staffAttToday.filter((a) => !a.absent).length;
+  const staffAbsentToday = staffAttToday.filter((a) => a.absent).length;
 
   const studentMap = useMemo(() => Object.fromEntries(students.map((s) => [s.id, s])), [students]);
 
@@ -887,18 +910,7 @@ export default function SchoolManagementSystem() {
           <div className="sms-brand-sub">{SCHOOL_ADDRESS}</div>
         </div>
         <nav className="sms-tabs">
-          {[
-            { key: "dashboard", label: "Dashboard", i: "01" },
-            { key: "staff", label: "Staff records", i: "02" },
-            { key: "admissions", label: "Admissions", i: "03" },
-            { key: "fees", label: "Fee ledger", i: "04" },
-            { key: "items", label: "Uniforms & books", i: "05" },
-            { key: "pettycash", label: "Petty cash", i: "06" },
-            { key: "salary", label: "Staff salary", i: "07" },
-            { key: "ledger", label: "Ledger report", i: "08" },
-            { key: "studentattendance", label: "Student attendance", i: "09" },
-            { key: "staffattendance", label: "Staff attendance", i: "10" },
-          ].map((t) => (
+          {ALL_TABS.filter((t) => t.key === "dashboard" || isAdmin || settings.staffTabAccess?.[t.key] !== false).map((t) => (
             <div key={t.key} className={"sms-tab" + (page === t.key ? " active" : "")} onClick={() => setPage(t.key)}>
               <span className="sms-tab-index">{t.i}</span>
               <span>{t.label}</span>
@@ -952,8 +964,15 @@ export default function SchoolManagementSystem() {
               <div className="sms-cards-row">
                 <div className="sms-card"><div className="sms-card-label">Students paid fee</div><div className="sms-card-value green">{studentsPaidThisMonth}</div></div>
                 <div className="sms-card"><div className="sms-card-label">Students due</div><div className="sms-card-value rust">{studentsDueThisMonth}</div></div>
-                <div className="sms-card"><div className="sms-card-label">Received uniform</div><div className="sms-card-value">{uniformStudentsThisMonth}</div></div>
-                <div className="sms-card"><div className="sms-card-label">Received books</div><div className="sms-card-value">{bookStudentsThisMonth}</div></div>
+                <div className="sms-card"><div className="sms-card-label">Uniform fund collected</div><div className="sms-card-value green">{currency(uniformCollectedThisMonth)}</div></div>
+                <div className="sms-card"><div className="sms-card-label">Books fund collected</div><div className="sms-card-value green">{currency(bookCollectedThisMonth)}</div></div>
+              </div>
+
+              <div className="sms-section-title">Staff attendance <span className="sms-tag">today · {todayStr}</span></div>
+              <div className="sms-cards-row three">
+                <div className="sms-card"><div className="sms-card-label">Present today</div><div className="sms-card-value green">{staffPresentToday}</div></div>
+                <div className="sms-card"><div className="sms-card-label">Absent today</div><div className="sms-card-value rust">{staffAbsentToday}</div></div>
+                <div className="sms-card"><div className="sms-card-label">Not marked yet</div><div className="sms-card-value">{Math.max(activeStaffCount - staffAttToday.length, 0)}</div></div>
               </div>
 
               <div className="sms-section-title">Recent admissions <span className="sms-tag">last 5</span></div>
@@ -1574,10 +1593,15 @@ export default function SchoolManagementSystem() {
 }
 
 function SettingsForm({ settings, onCancel, onSave }) {
-  const [form, setForm] = useState({ ...settings });
+  const [form, setForm] = useState({ ...settings, staffTabAccess: { ...(settings.staffTabAccess || {}) } });
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  function toggleTab(key) {
+    const current = form.staffTabAccess[key] !== false;
+    setForm({ ...form, staffTabAccess: { ...form.staffTabAccess, [key]: !current } });
+  }
+  const restrictableTabs = ALL_TABS.filter((t) => t.key !== "dashboard");
   return (
-    <Modal title="Settings & access" onClose={onCancel} footer={<>
+    <Modal title="Settings & access" wide onClose={onCancel} footer={<>
       <button className="sms-btn secondary" onClick={onCancel}>Cancel</button>
       <button className="sms-btn" onClick={() => onSave(form)}>Save settings</button>
     </>}>
@@ -1589,6 +1613,17 @@ function SettingsForm({ settings, onCancel, onSave }) {
         <Field label="Admin password"><input className="sms-input" value={form.adminPassword} onChange={set("adminPassword")} /></Field>
         <Field label="Staff access code"><input className="sms-input" value={form.staffPassword} onChange={set("staffPassword")} /></Field>
       </div>
+      <Field label="Tab access for staff accounts">
+        <div className="sms-subtext" style={{ marginBottom: 8 }}>Dashboard is always visible to everyone. Uncheck any tab below to hide it from Staff logins — Admin always sees every tab regardless of these settings.</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px" }}>
+          {restrictableTabs.map((t) => (
+            <label key={t.key} className="sms-checkbox-row">
+              <input type="checkbox" checked={form.staffTabAccess[t.key] !== false} onChange={() => toggleTab(t.key)} />
+              {t.label}
+            </label>
+          ))}
+        </div>
+      </Field>
     </Modal>
   );
 }
