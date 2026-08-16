@@ -119,14 +119,37 @@ building. A few easy options:
 
 ---
 
+## Mobile use
+
+The app is fully responsive — on a phone the sidebar becomes a slide-out
+menu (tap the ☰ button top-left), tables scroll horizontally with a swipe,
+and forms stack into a single column.
+
+It's also installable as an app on a phone's home screen (a Progressive
+Web App): open the deployed site in Chrome (Android) or Safari (iPhone)
+and use "Add to Home Screen" / "Install app" from the browser menu. It
+will then open full-screen with its own icon, without browser address
+bars, just like a native app.
+
+**Note:** this is a installable *web app* (PWA), not a native iOS/Android
+app submitted to the App Store or Play Store. It works great installed
+from the browser, but if you specifically need Play Store/App Store
+listings, that's a separate, larger project (e.g. wrapping this with
+Capacitor or rebuilding in React Native) — happy to help with that later
+if it becomes a requirement.
+
 ## Project structure
 
 ```
 ├── index.html          Entry HTML page
 ├── package.json         Dependencies and scripts
 ├── vite.config.js        Build tool configuration
+├── public/
+│   ├── manifest.webmanifest   PWA install metadata
+│   ├── sw.js                  Service worker (offline app-shell + installability)
+│   ├── icon-192.png, icon-512.png, icon-maskable-512.png, apple-touch-icon.png, favicon.png
 └── src/
-    ├── main.jsx          Mounts the app into the page
+    ├── main.jsx          Mounts the app into the page, registers the service worker
     ├── App.jsx           The entire application (all tabs/features)
     ├── storageShim.js    Makes the app's data storage work in a normal browser
     └── index.css         Minimal page styling

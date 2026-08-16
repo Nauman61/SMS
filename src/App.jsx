@@ -147,6 +147,9 @@ const STYLES = `
   .sms-login-error { color: var(--rust); font-size: 12px; margin-top: 6px; }
   .sms-login-hint { font-size: 11px; color: var(--text-soft); margin-top: 14px; line-height: 1.5; }
 
+  .sms-mobile-topbar { display: none; }
+  .sms-sidebar-overlay { display: none; }
+
   .sms-sidebar { width: 224px; background: var(--ink); color: #EFE9D8; display: flex; flex-direction: column; flex-shrink: 0; }
   .sms-brand { padding: 22px 20px 16px 20px; border-bottom: 1px solid rgba(239,233,216,0.15); }
   .sms-brand-title { font-size: 18px; font-weight: 700; line-height: 1.3; color: #F6F1E4; }
@@ -168,11 +171,11 @@ const STYLES = `
   .sms-sidebar-link { display: block; width: 100%; text-align: left; background: none; border: none; color: #C9C2AA; font-size: 12px; padding: 5px 0; cursor: pointer; }
   .sms-sidebar-link:hover { color: #F6F1E4; }
 
-  .sms-main { flex: 1; min-width: 0; background: var(--paper-2); display: flex; flex-direction: column; max-height: 92vh; overflow-y: auto; }
+  .sms-main { flex: 1; min-width: 0; background: var(--paper-2); display: flex; flex-direction: column; max-height: 92vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
   .sms-header { padding: 22px 32px 16px 32px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
   .sms-header h1 { font-size: 22px; margin: 0; color: var(--ink); }
   .sms-header .sms-datestamp { font-size: 11.5px; color: var(--text-soft); font-family: 'IBM Plex Mono', monospace; }
-  .sms-header-actions { display: flex; gap: 8px; align-items: center; }
+  .sms-header-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
   .sms-content { padding: 24px 32px 40px 32px; }
 
@@ -266,9 +269,48 @@ const STYLES = `
   .sms-overdue-item .sms-oi-meta { font-size: 11.5px; color: var(--text-soft); }
   .sms-overdue-item .sms-oi-amount { font-family: 'IBM Plex Mono', monospace; font-weight: 600; color: var(--rust); }
 
-  @media (max-width: 780px) {
-    .sms-cards-row, .sms-cards-row.three { grid-template-columns: repeat(2, 1fr); }
+  @media (max-width: 880px) {
+    html, body { overflow-x: hidden; }
+    .sms-root { flex-direction: column; border-radius: 0; min-height: 100vh; }
+
+    .sms-mobile-topbar {
+      display: flex; align-items: center; gap: 12px; background: var(--ink); color: #F6F1E4;
+      padding: 12px 16px; position: sticky; top: 0; z-index: 40; flex-shrink: 0;
+    }
+    .sms-hamburger-btn {
+      background: none; border: 1px solid rgba(239,233,216,0.3); border-radius: 6px; color: #F6F1E4;
+      width: 38px; height: 38px; font-size: 18px; cursor: pointer; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+    }
+    .sms-mobile-topbar .title { font-size: 14px; font-weight: 600; line-height: 1.3; }
+    .sms-mobile-topbar .sub { font-size: 10px; color: var(--gold); }
+
+    .sms-sidebar {
+      position: fixed; top: 0; left: 0; bottom: 0; z-index: 60; width: 260px; max-width: 82vw;
+      transform: translateX(-100%); transition: transform 0.22s ease; box-shadow: 4px 0 18px rgba(0,0,0,0.25);
+    }
+    .sms-sidebar.open { transform: translateX(0); }
+    .sms-sidebar-overlay {
+      display: block; position: fixed; inset: 0; background: rgba(20,24,36,0.5); z-index: 50;
+      opacity: 0; pointer-events: none; transition: opacity 0.2s ease;
+    }
+    .sms-sidebar-overlay.open { opacity: 1; pointer-events: auto; }
+
+    .sms-main { max-height: none; overflow: visible; }
+    .sms-header { padding: 16px 16px 12px 16px; }
+    .sms-header h1 { font-size: 19px; }
+    .sms-content { padding: 16px 16px 32px 16px; }
+    .sms-cards-row, .sms-cards-row.three { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .sms-card { padding: 12px 14px; }
+    .sms-card-value { font-size: 19px; }
     .sms-field-row, .sms-field-row.three { grid-template-columns: 1fr; }
+    .sms-modal-overlay { padding: 0; align-items: flex-end; }
+    .sms-modal { max-width: 100%; width: 100%; max-height: 92vh; border-radius: 14px 14px 0 0; }
+    .sms-ledger-page { -webkit-overflow-scrolling: touch; }
+    .sms-btn, .sms-input, .sms-select { font-size: 14px; }
+  }
+
+  @media (max-width: 460px) {
+    .sms-cards-row, .sms-cards-row.three { grid-template-columns: 1fr; }
   }
 
   .sms-ledger-report-head { margin-bottom: 18px; }
@@ -280,7 +322,7 @@ const STYLES = `
   table.sms-ledger-table th { background: rgba(30,42,68,0.06); font-size: 10px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-soft); }
 
   @media print {
-    .sms-sidebar, .sms-no-print { display: none !important; }
+    .sms-sidebar, .sms-no-print, .sms-mobile-topbar, .sms-sidebar-overlay { display: none !important; }
     .sms-root { border: none !important; box-shadow: none !important; border-radius: 0 !important; display: block !important; }
     .sms-main { max-height: none !important; overflow: visible !important; }
     .sms-content { padding: 0 !important; }
@@ -384,6 +426,7 @@ export default function SchoolManagementSystem() {
   const [staffAttModal, setStaffAttModal] = useState(null);
   const [settingsModal, setSettingsModal] = useState(false);
   const [showAdmissionLedger, setShowAdmissionLedger] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [overdueModal, setOverdueModal] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [autoPopupShown, setAutoPopupShown] = useState(false);
@@ -904,14 +947,24 @@ export default function SchoolManagementSystem() {
     <div className="sms-root">
       <style>{STYLES}</style>
       {toast && <div className="sms-toast">{toast}</div>}
-      <aside className="sms-sidebar">
+
+      <div className="sms-mobile-topbar">
+        <button className="sms-hamburger-btn" onClick={() => setMobileNavOpen(true)} aria-label="Open menu">☰</button>
+        <div>
+          <div className="title sms-serif">{SCHOOL_NAME}</div>
+          <div className="sub">{ALL_TABS.find((t) => t.key === page)?.label || ""}</div>
+        </div>
+      </div>
+      <div className={"sms-sidebar-overlay" + (mobileNavOpen ? " open" : "")} onClick={() => setMobileNavOpen(false)} />
+
+      <aside className={"sms-sidebar" + (mobileNavOpen ? " open" : "")}>
         <div className="sms-brand">
           <div className="sms-brand-title sms-serif">{SCHOOL_NAME}</div>
           <div className="sms-brand-sub">{SCHOOL_ADDRESS}</div>
         </div>
         <nav className="sms-tabs">
           {ALL_TABS.filter((t) => t.key === "dashboard" || isAdmin || settings.staffTabAccess?.[t.key] !== false).map((t) => (
-            <div key={t.key} className={"sms-tab" + (page === t.key ? " active" : "")} onClick={() => setPage(t.key)}>
+            <div key={t.key} className={"sms-tab" + (page === t.key ? " active" : "")} onClick={() => { setPage(t.key); setMobileNavOpen(false); }}>
               <span className="sms-tab-index">{t.i}</span>
               <span>{t.label}</span>
               {t.key === "fees" && overdueStudentIds.length > 0 && <span className="sms-tab-badge">{overdueStudentIds.length}</span>}
@@ -920,7 +973,7 @@ export default function SchoolManagementSystem() {
         </nav>
         <div className="sms-sidebar-foot">
           <div className="sms-user-chip">{currentUser.name}<span className="role">{currentUser.role === "admin" ? "Administrator" : "Staff"}</span></div>
-          {isAdmin && <button className="sms-sidebar-link" onClick={() => setSettingsModal(true)}>⚙ Settings &amp; access</button>}
+          {isAdmin && <button className="sms-sidebar-link" onClick={() => { setSettingsModal(true); setMobileNavOpen(false); }}>⚙ Settings &amp; access</button>}
           <button className="sms-sidebar-link" onClick={() => setCurrentUser(null)}>↩ Log out</button>
         </div>
       </aside>
