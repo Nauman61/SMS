@@ -166,6 +166,8 @@ const STYLES = `
   .sms-tab-badge { margin-left: auto; background: var(--rust); color: #fff; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 20px; }
 
   .sms-sidebar-foot { padding: 14px 20px 16px 20px; border-top: 1px solid rgba(239,233,216,0.15); }
+  .sms-sync-badge { font-size: 10.5px; color: #C9C2AA; background: rgba(239,233,216,0.08); border: 1px solid rgba(239,233,216,0.15); border-radius: 5px; padding: 5px 8px; margin-bottom: 10px; }
+  .sms-sync-badge.cloud { color: var(--gold); border-color: rgba(176,136,80,0.4); background: rgba(176,136,80,0.1); }
   .sms-user-chip { font-size: 12px; color: #F6F1E4; margin-bottom: 8px; }
   .sms-user-chip .role { color: var(--gold); text-transform: uppercase; font-size: 9.5px; letter-spacing: 0.06em; display: block; margin-top: 2px; }
   .sms-sidebar-link { display: block; width: 100%; text-align: left; background: none; border: none; color: #C9C2AA; font-size: 12px; padding: 5px 0; cursor: pointer; }
@@ -973,6 +975,9 @@ export default function SchoolManagementSystem() {
         </nav>
         <div className="sms-sidebar-foot">
           <div className="sms-user-chip">{currentUser.name}<span className="role">{currentUser.role === "admin" ? "Administrator" : "Staff"}</span></div>
+          <div className={"sms-sync-badge" + (typeof window !== "undefined" && window.__HSS_STORAGE_MODE__ === "cloud" ? " cloud" : "")}>
+            {typeof window !== "undefined" && window.__HSS_STORAGE_MODE__ === "cloud" ? "☁ Synced across devices" : "💻 Local only (this device)"}
+          </div>
           {isAdmin && <button className="sms-sidebar-link" onClick={() => { setSettingsModal(true); setMobileNavOpen(false); }}>⚙ Settings &amp; access</button>}
           <button className="sms-sidebar-link" onClick={() => setCurrentUser(null)}>↩ Log out</button>
         </div>

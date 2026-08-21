@@ -7,29 +7,20 @@ Admin/Staff login, an audit trail on every payment entry, and Excel export.
 
 ---
 
-## ⚠️ Please read before going live
+## ⚠️ About data storage
 
-This build stores all data in **your browser's local storage** on
-whichever computer you run it from. That means:
+This app can run in two modes:
 
-- Data does **not** sync between different computers, laptops, or phones.
-  If your front desk uses one PC and the office uses another, they will
-  each have their **own separate copy** of the data.
-- Clearing browser history/site data, or switching browsers, will **erase
-  all school data** on that device.
-- Anyone with physical/browser access to that computer can open the
-  browser's developer tools and read the stored data (including the
-  admin/staff passwords), since there is no real server-side security.
+- **Cloud mode (recommended)** — connected to a free Supabase database.
+  Every device (admin's phone, staff's phone, the office PC) reads and
+  writes the **same live data**. Set this up once, below.
+- **Local mode (default if you skip setup)** — data is stored only in
+  each device's own browser. Fine for testing or a single shared
+  computer, but different devices will each have their **own separate
+  copy** of the data, and clearing browser data erases it.
 
-This is a perfectly reasonable way to get live quickly if the school will
-run everything from **one shared computer** (e.g. the office PC), and you
-export an Excel backup regularly using the "Download full report" button.
-
-**If you need multiple computers/devices to see the same live data**, you
-need a real backend with a shared database instead of this local-storage
-version. That's a bigger project — let me know and I can help build it
-(for example, a small Node.js + PostgreSQL or Firebase backend) as a next
-step.
+The sidebar footer always shows which mode you're currently in
+("☁ Synced across devices" or "💻 Local only").
 
 ---
 
@@ -49,7 +40,40 @@ From inside this project folder:
 npm install
 ```
 
-## 3. Run it locally (to test before going live)
+## 3. Attach a shared database (Supabase) — do this before going live
+
+This is what makes every device see the same live data. It's free and
+takes about five minutes.
+
+1. Go to [supabase.com](https://supabase.com) and sign up (free tier).
+2. Click **New project**. Pick any name/region, set a database password
+   (you won't need to remember it — Supabase manages this), and wait
+   ~1 minute for it to finish setting up.
+3. In your new project, open the **SQL Editor** (left sidebar) → **New
+   query**, paste in the entire contents of `supabase/schema.sql` from
+   this project, and click **Run**. This creates the one table the app
+   needs.
+4. Go to **Settings → API** in your Supabase project. You'll see a
+   **Project URL** and an **anon public** API key — copy both.
+5. In this project folder, copy `.env.example` to a new file named
+   `.env`, and paste your values in:
+   ```
+   VITE_SUPABASE_URL=https://your-project-id.supabase.co
+   VITE_SUPABASE_ANON_KEY=your-anon-key-here
+   ```
+6. That's it. Rebuild (`npm run build`) and redeploy — the app will
+   automatically detect these values and switch to cloud mode.
+
+**Security note:** the anon key above is meant to be included in the
+built website's code (that's normal for Supabase), but it does mean
+anyone who has it can read/write your data directly, bypassing the
+app's Admin/Staff login. For a small private school tool this is a
+reasonable trade-off, but don't publish your `.env` file or post your
+Supabase URL/key publicly (e.g. in a public GitHub repo). If you need
+stronger security later, that requires a custom backend with real
+server-side authentication — let me know if you want to go there.
+
+## 4. Run it locally (to test before going live)
 
 ```bash
 npm run dev
@@ -57,20 +81,22 @@ npm run dev
 This starts a local server, usually at `http://localhost:5173`. Open that
 in your browser to use the app.
 
-## 4. Build for production
+## 5. Build for production
 
 ```bash
 npm run build
 ```
 This creates a `dist/` folder containing the finished static website
-(HTML, CSS, JS) — this is what you deploy.
+(HTML, CSS, JS) — this is what you deploy. **Make sure your `.env` file
+is in place before running this** — Vite bakes those values into the
+build at this step.
 
 You can preview the production build locally before deploying:
 ```bash
 npm run preview
 ```
 
-## 5. Deploy it live
+## 6. Deploy it live
 
 Any static hosting service works, since this is a plain static site after
 building. A few easy options:
@@ -100,9 +126,19 @@ building. A few easy options:
 3. Use a GitHub Pages deploy action, or manually push the contents of
    `dist/` to a `gh-pages` branch.
 
+**Using the drag-and-drop options above (A/C)?** Just make sure your
+`.env` file exists locally with your Supabase values *before* running
+`npm run build` — Vite reads it at build time.
+
+**Connecting a Git repo instead (Netlify/Vercel's "import from GitHub"
+flow)?** Don't commit your `.env` file. Instead add `VITE_SUPABASE_URL`
+and `VITE_SUPABASE_ANON_KEY` as environment variables in that platform's
+site settings (Netlify: Site settings → Environment variables. Vercel:
+Project settings → Environment Variables), then redeploy.
+
 ---
 
-## 6. Before you open it to real use
+## 7. Before you open it to real use
 
 1. **Change the default passwords.** Log in as Admin with the default
    password `admin123`, then go to the sidebar → **⚙ Settings & access**
@@ -141,9 +177,12 @@ if it becomes a requirement.
 ## Project structure
 
 ```
-├── index.html          Entry HTML page
-├── package.json         Dependencies and scripts
+├── index.html            Entry HTML page
+├── package.json          Dependencies and scripts
 ├── vite.config.js        Build tool configuration
+├── .env.example           Template for your Supabase credentials
+├── supabase/
+│   └── schema.sql          SQL to run once in Supabase to create the data table
 ├── public/
 │   ├── manifest.webmanifest   PWA install metadata
 │   ├── sw.js                  Service worker (offline app-shell + installability)
@@ -151,7 +190,7 @@ if it becomes a requirement.
 └── src/
     ├── main.jsx          Mounts the app into the page, registers the service worker
     ├── App.jsx           The entire application (all tabs/features)
-    ├── storageShim.js    Makes the app's data storage work in a normal browser
+    ├── storageShim.js    Talks to Supabase if configured, else falls back to local browser storage
     └── index.css         Minimal page styling
 ```
 
@@ -162,4 +201,4 @@ if it becomes a requirement.
 | Admin | `admin123`  |
 | Staff | `staff123`  |
 
-**Change these immediately after your first login** — see step 6 above.
+**Change these immediately after your first login** — see step 7 above.
