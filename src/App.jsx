@@ -402,8 +402,18 @@ function LoginScreen({ settings, onLogin }) {
   );
 }
 
+const SESSION_KEY = "hss_session_user_v1";
+function loadSavedSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 export default function SchoolManagementSystem() {
-  const [currentUser, setCurrentUser] = useState(null);
+  const [currentUser, setCurrentUser] = useState(() => loadSavedSession());
   const [page, setPage] = useState("dashboard");
   const [loading, setLoading] = useState(true);
   const [staff, setStaff] = useState([]);
@@ -497,6 +507,15 @@ export default function SchoolManagementSystem() {
   function saveSettings(next) { setSettings(next); persist("sms-settings", next); }
 
   function showToast(msg) { setToast(msg); setTimeout(() => setToast(null), 7000); }
+
+  function handleLogin(user) {
+    setCurrentUser(user);
+    try { localStorage.setItem(SESSION_KEY, JSON.stringify(user)); } catch (e) { /* ignore */ }
+  }
+  function handleLogout() {
+    setCurrentUser(null);
+    try { localStorage.removeItem(SESSION_KEY); } catch (e) { /* ignore */ }
+  }
 
   const isAdmin = currentUser && currentUser.role === "admin";
 
@@ -942,7 +961,7 @@ export default function SchoolManagementSystem() {
     return (<div className="sms-root"><style>{STYLES}</style><div className="sms-loading">Loading registry records…</div></div>);
   }
   if (!currentUser) {
-    return <LoginScreen settings={settings} onLogin={setCurrentUser} />;
+    return <LoginScreen settings={settings} onLogin={handleLogin} />;
   }
 
   return (
@@ -979,7 +998,7 @@ export default function SchoolManagementSystem() {
             {typeof window !== "undefined" && window.__HSS_STORAGE_MODE__ === "cloud" ? "☁ Synced across devices" : "💻 Local only (this device)"}
           </div>
           {isAdmin && <button className="sms-sidebar-link" onClick={() => { setSettingsModal(true); setMobileNavOpen(false); }}>⚙ Settings &amp; access</button>}
-          <button className="sms-sidebar-link" onClick={() => setCurrentUser(null)}>↩ Log out</button>
+          <button className="sms-sidebar-link" onClick={handleLogout}>↩ Log out</button>
         </div>
       </aside>
 
