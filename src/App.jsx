@@ -838,7 +838,7 @@ export default function SchoolManagementSystem() {
   function exportStaff() {
     downloadWorkbook([{ name: "Staff", rows: staff.map((s) => ({
       Name: s.name, Role: s.role, Subject: s.subject, Phone: s.phone, Email: s.email,
-      "Joining Date": s.joinDate, "Monthly Salary": s.salary, Status: s.status, "Inactive Reason": s.inactiveReason || "",
+      "Joining Date": s.joinDate, "Monthly Salary": s.salary, Status: s.status, "Inactive Date": s.inactiveDate || "", "Inactive Reason": s.inactiveReason || "",
     })) }], "staff-records.xlsx");
   }
   function exportStudents() {
@@ -851,7 +851,7 @@ export default function SchoolManagementSystem() {
         "Registration Fee": s.registrationFee || 0, "Admission Fee": s.admissionFee || 0,
         "Monthly Fee": s.standardFee, "Discount Type": s.discountType, "Discount Value": s.discountValue,
         Discount: discount, "Net Monthly Fee": s.feeWaived ? 0 : netFee, "Fee Waived": s.feeWaived ? "Yes" : "No",
-        Status: s.status, "Inactive Reason": s.inactiveReason || "",
+        Status: s.status, "Inactive Date": s.inactiveDate || "", "Inactive Reason": s.inactiveReason || "",
       };
     }) }], "admissions.xlsx");
   }
@@ -941,10 +941,10 @@ export default function SchoolManagementSystem() {
       };
     });
     downloadWorkbook([
-      { name: "Staff", rows: staff.map((s) => ({ Name: s.name, Role: s.role, Subject: s.subject, Phone: s.phone, Email: s.email, "Joining Date": s.joinDate, "Monthly Salary": s.salary, Status: s.status, "Inactive Reason": s.inactiveReason || "" })) },
+      { name: "Staff", rows: staff.map((s) => ({ Name: s.name, Role: s.role, Subject: s.subject, Phone: s.phone, Email: s.email, "Joining Date": s.joinDate, "Monthly Salary": s.salary, Status: s.status, "Inactive Date": s.inactiveDate || "", "Inactive Reason": s.inactiveReason || "" })) },
       { name: "Admissions", rows: students.map((s) => {
           const { discount, netFee } = computeNetFee(s.standardFee, s.discountType, s.discountValue);
-          return { Name: s.name, Class: s.class, Section: s.section, "Roll No": s.rollNo, "Admission Date": s.admissionDate, "Father's Name": s.fatherName || "", "Father's CNIC": s.fatherCnic || "", "Parent Name": s.parentName, "Parent Phone": s.parentPhone, "Emergency Contact": s.emergencyContact || "", "Registration Fee": s.registrationFee || 0, "Admission Fee": s.admissionFee || 0, "Monthly Fee": s.standardFee, Discount: discount, "Net Monthly Fee": s.feeWaived ? 0 : netFee, "Fee Waived": s.feeWaived ? "Yes" : "No", Status: s.status, "Inactive Reason": s.inactiveReason || "" };
+          return { Name: s.name, Class: s.class, Section: s.section, "Roll No": s.rollNo, "Admission Date": s.admissionDate, "Father's Name": s.fatherName || "", "Father's CNIC": s.fatherCnic || "", "Parent Name": s.parentName, "Parent Phone": s.parentPhone, "Emergency Contact": s.emergencyContact || "", "Registration Fee": s.registrationFee || 0, "Admission Fee": s.admissionFee || 0, "Monthly Fee": s.standardFee, Discount: discount, "Net Monthly Fee": s.feeWaived ? 0 : netFee, "Fee Waived": s.feeWaived ? "Yes" : "No", Status: s.status, "Inactive Date": s.inactiveDate || "", "Inactive Reason": s.inactiveReason || "" };
         }) },
       { name: "Fee Ledger", rows: fees.map(feeRowExport) },
       { name: "Uniforms and Books", rows: items.map(itemRowExport) },
@@ -1092,10 +1092,12 @@ export default function SchoolManagementSystem() {
                       <tr key={s.id}>
                         <td>{s.name}</td><td>{s.role}</td><td>{s.subject}</td><td className="sms-mono">{s.phone}</td>
                         <td>{s.joinDate}</td><td className="sms-mono">{currency(s.salary)}</td>
-                        <td><span className={"sms-pill " + s.status}>{s.status}</span>{s.status === "inactive" && s.inactiveReason && <span className="sms-subtext">{s.inactiveReason}</span>}</td>
+                        <td><span className={"sms-pill " + s.status}>{s.status}</span>{s.status === "inactive" && (s.inactiveReason || s.inactiveDate) && <span className="sms-subtext">{s.inactiveDate ? `Since ${s.inactiveDate}. ` : ""}{s.inactiveReason}</span>}</td>
                         <td style={{ display: "flex", gap: 6 }}>
-                          <button className="sms-btn secondary small" onClick={() => setStaffModal(s)}>Edit</button>
-                          <button className="sms-btn danger small" onClick={() => deleteStaff(s.id)}>Delete</button>
+                          {isAdmin ? (<>
+                            <button className="sms-btn secondary small" onClick={() => setStaffModal(s)}>Edit</button>
+                            <button className="sms-btn danger small" onClick={() => deleteStaff(s.id)}>Delete</button>
+                          </>) : <span className="sms-locked">Admin only</span>}
                         </td>
                       </tr>
                     ))}
@@ -1156,7 +1158,7 @@ export default function SchoolManagementSystem() {
                               <td>{currency(s.standardFee)}</td>
                               <td>{discount > 0 ? currency(discount) : "—"}</td>
                               <td>{s.feeWaived ? "Exempt" : currency(netFee)}</td>
-                              <td>{s.status}{s.status === "inactive" && s.inactiveReason ? ` — ${s.inactiveReason}` : ""}</td>
+                              <td>{s.status}{s.status === "inactive" ? ` — ${s.inactiveDate ? "since " + s.inactiveDate + ". " : ""}${s.inactiveReason || ""}` : ""}</td>
                             </tr>
                           );
                         })}
@@ -1191,10 +1193,12 @@ export default function SchoolManagementSystem() {
                                 {s.feeWaived ? <span className="sms-pill free">exempt</span> : currency(netFee)}
                                 {!s.feeWaived && discount > 0 && <span className="sms-subtext">discount {currency(discount)}</span>}
                               </td>
-                              <td><span className={"sms-pill " + s.status}>{s.status}</span>{s.status === "inactive" && s.inactiveReason && <span className="sms-subtext">{s.inactiveReason}</span>}</td>
+                              <td><span className={"sms-pill " + s.status}>{s.status}</span>{s.status === "inactive" && (s.inactiveReason || s.inactiveDate) && <span className="sms-subtext">{s.inactiveDate ? `Since ${s.inactiveDate}. ` : ""}{s.inactiveReason}</span>}</td>
                               <td style={{ display: "flex", gap: 6 }}>
-                                <button className="sms-btn secondary small" onClick={() => setStudentModal(s)}>Edit</button>
-                                <button className="sms-btn danger small" onClick={() => deleteStudent(s.id)}>Delete</button>
+                                {isAdmin ? (<>
+                                  <button className="sms-btn secondary small" onClick={() => setStudentModal(s)}>Edit</button>
+                                  <button className="sms-btn danger small" onClick={() => deleteStudent(s.id)}>Delete</button>
+                                </>) : <span className="sms-locked">Admin only</span>}
                               </td>
                             </tr>
                           );
@@ -1710,15 +1714,15 @@ function StaffForm({ initial, onCancel, onSave }) {
     id: initial.id || uid("staff"), name: initial.name || "", role: initial.role || "Teacher",
     subject: initial.subject || "", phone: initial.phone || "", email: initial.email || "",
     joinDate: initial.joinDate || todayISO(), salary: initial.salary || "", hourlyRate: initial.hourlyRate || "",
-    status: initial.status || "active", inactiveReason: initial.inactiveReason || "",
+    status: initial.status || "active", inactiveReason: initial.inactiveReason || "", inactiveDate: initial.inactiveDate || todayISO(),
   });
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const needsReason = form.status === "inactive";
-  const valid = form.name.trim().length > 0 && (!needsReason || form.inactiveReason.trim().length > 0);
+  const valid = form.name.trim().length > 0 && (!needsReason || (form.inactiveReason.trim().length > 0 && form.inactiveDate));
   return (
     <Modal title={initial.id ? "Edit staff record" : "Add staff record"} onClose={onCancel} footer={<>
       <button className="sms-btn secondary" onClick={onCancel}>Cancel</button>
-      <button className="sms-btn" disabled={!valid} onClick={() => onSave({ ...form, salary: Number(form.salary) || 0, hourlyRate: Number(form.hourlyRate) || 0 })}>Save record</button>
+      <button className="sms-btn" disabled={!valid} onClick={() => onSave({ ...form, salary: Number(form.salary) || 0, hourlyRate: Number(form.hourlyRate) || 0, inactiveDate: needsReason ? form.inactiveDate : "" })}>Save record</button>
     </>}>
       <Field label="Full name"><input className="sms-input" value={form.name} onChange={set("name")} placeholder="Anita Sharma" /></Field>
       <div className="sms-field-row">
@@ -1741,9 +1745,14 @@ function StaffForm({ initial, onCancel, onSave }) {
       <div className="sms-subtext" style={{ marginTop: -6 }}>If set and this staff member has check-in/check-out attendance logged for a month, "Generate this month's salaries" will calculate their pay from actual hours worked instead of the flat monthly salary above.</div>
       <Field label="Status"><select className="sms-select" value={form.status} onChange={set("status")}><option value="active">Active</option><option value="inactive">Inactive</option></select></Field>
       {needsReason && (
-        <Field label="Reason for inactive status (required)">
-          <textarea value={form.inactiveReason} onChange={set("inactiveReason")} placeholder="e.g. Resigned, on leave, termination…" />
-        </Field>
+        <div className="sms-field-row">
+          <Field label="Inactive since (required)">
+            <input className="sms-input" type="date" value={form.inactiveDate} onChange={set("inactiveDate")} />
+          </Field>
+          <Field label="Reason for inactive status (required)">
+            <input className="sms-input" value={form.inactiveReason} onChange={set("inactiveReason")} placeholder="e.g. Resigned, termination…" />
+          </Field>
+        </div>
       )}
     </Modal>
   );
@@ -1759,12 +1768,12 @@ function StudentForm({ initial, onCancel, onSave }) {
     standardFee: initial.standardFee ?? initial.monthlyFee ?? "",
     discountType: initial.discountType || "none", discountValue: initial.discountValue || "",
     feeWaived: initial.feeWaived || false, status: initial.status || "active",
-    inactiveReason: initial.inactiveReason || "",
+    inactiveReason: initial.inactiveReason || "", inactiveDate: initial.inactiveDate || todayISO(),
   });
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const setBool = (k) => (e) => setForm({ ...form, [k]: e.target.checked });
   const needsReason = form.status === "inactive";
-  const valid = form.name.trim().length > 0 && form.rollNo.trim().length > 0 && (!needsReason || form.inactiveReason.trim().length > 0);
+  const valid = form.name.trim().length > 0 && form.rollNo.trim().length > 0 && (!needsReason || (form.inactiveReason.trim().length > 0 && form.inactiveDate));
   const { discount, netFee } = computeNetFee(form.standardFee, form.discountType, form.discountValue);
   const oneTimeFees = (Number(form.registrationFee) || 0) + (Number(form.admissionFee) || 0);
   return (
@@ -1773,6 +1782,7 @@ function StudentForm({ initial, onCancel, onSave }) {
       <button className="sms-btn" disabled={!valid} onClick={() => onSave({
         ...form, standardFee: Number(form.standardFee) || 0, discountValue: Number(form.discountValue) || 0,
         registrationFee: Number(form.registrationFee) || 0, admissionFee: Number(form.admissionFee) || 0,
+        inactiveDate: needsReason ? form.inactiveDate : "",
       })}>Save admission</button>
     </>}>
       <Field label="Student name"><input className="sms-input" value={form.name} onChange={set("name")} placeholder="Ahmed Raza" /></Field>
@@ -1815,9 +1825,14 @@ function StudentForm({ initial, onCancel, onSave }) {
       <div className="sms-computed">{form.feeWaived ? "Net monthly fee: Rs 0 (exempt)" : `Net monthly fee: ${currency(netFee)}${discount > 0 ? ` (discount ${currency(discount)})` : ""}`}</div>
       <Field label="Status"><select className="sms-select" value={form.status} onChange={set("status")}><option value="active">Active</option><option value="inactive">Inactive</option></select></Field>
       {needsReason && (
-        <Field label="Reason for inactive status (required)">
-          <textarea value={form.inactiveReason} onChange={set("inactiveReason")} placeholder="e.g. Left the school, transferred, long-term leave…" />
-        </Field>
+        <div className="sms-field-row">
+          <Field label="Inactive since (required)">
+            <input className="sms-input" type="date" value={form.inactiveDate} onChange={set("inactiveDate")} />
+          </Field>
+          <Field label="Reason for inactive status (required)">
+            <input className="sms-input" value={form.inactiveReason} onChange={set("inactiveReason")} placeholder="e.g. Left the school, transferred…" />
+          </Field>
+        </div>
       )}
     </Modal>
   );
