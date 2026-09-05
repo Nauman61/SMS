@@ -14,15 +14,17 @@ const REGULAR_HOURS_PER_DAY = 8;
 const OVERTIME_MULTIPLIER = 1.5;
 const ALL_TABS = [
   { key: "dashboard", label: "Dashboard", i: "01" },
-  { key: "staff", label: "Staff records", i: "02" },
-  { key: "admissions", label: "Admissions", i: "03" },
-  { key: "fees", label: "Fee ledger", i: "04" },
-  { key: "items", label: "Uniforms & books", i: "05" },
-  { key: "pettycash", label: "Petty cash", i: "06" },
-  { key: "salary", label: "Staff salary", i: "07" },
-  { key: "ledger", label: "Ledger report", i: "08" },
-  { key: "studentattendance", label: "Student attendance", i: "09" },
-  { key: "staffattendance", label: "Staff attendance", i: "10" },
+  { key: "myduty", label: "My duty", i: "02", requiresStaffLink: true },
+  { key: "staff", label: "Staff records", i: "03" },
+  { key: "admissions", label: "Admissions", i: "04" },
+  { key: "fees", label: "Fee ledger", i: "05" },
+  { key: "items", label: "Uniforms & books", i: "06" },
+  { key: "pettycash", label: "Petty cash", i: "07" },
+  { key: "salary", label: "Staff salary", i: "08" },
+  { key: "ledger", label: "Ledger report", i: "09" },
+  { key: "studentattendance", label: "Student attendance", i: "10" },
+  { key: "staffattendance", label: "Staff attendance", i: "11" },
+  { key: "useraccounts", label: "Staff logins", i: "12", adminOnly: true },
 ];
 
 function uid(prefix) {
@@ -121,6 +123,17 @@ function splitRegularOvertime(totalHrs) {
   const overtime = Math.max(0, totalHrs - REGULAR_HOURS_PER_DAY);
   return { regular, overtime };
 }
+function nowTimeHHMM() {
+  const d = new Date();
+  return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+}
+function formatTime12h(hhmm) {
+  if (!hhmm) return "—";
+  const [h, m] = hhmm.split(":").map(Number);
+  const period = h >= 12 ? "PM" : "AM";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2, "0")} ${period}`;
+}
 
 const STYLES = `
   @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap');
@@ -146,6 +159,13 @@ const STYLES = `
   .sms-role-btn.active { background: var(--ink); color: #F6F1E4; border-color: var(--ink); }
   .sms-login-error { color: var(--rust); font-size: 12px; margin-top: 6px; }
   .sms-login-hint { font-size: 11px; color: var(--text-soft); margin-top: 14px; line-height: 1.5; }
+
+  .sms-duty-card {
+    background: var(--paper-2); border: 1px solid var(--line); border-radius: 10px; padding: 28px 24px;
+    display: flex; flex-direction: column; align-items: center; gap: 16px; text-align: center; margin-bottom: 24px;
+  }
+  .sms-duty-status { font-size: 15px; color: var(--ink); display: flex; flex-direction: column; gap: 4px; }
+  .sms-duty-btn { padding: 14px 32px; font-size: 15px; border-radius: 8px; }
 
   .sms-mobile-topbar { display: none; }
   .sms-sidebar-overlay { display: none; }
@@ -357,16 +377,40 @@ function Field({ label, children }) {
 }
 
 function LoginScreen({ settings, onLogin }) {
+  const hasAccounts = Array.isArray(settings.userAccounts) && settings.userAccounts.length > 0;
   const [role, setRole] = useState("admin");
+  const [username, setUsername] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
   function handleSubmit(e) {
     e.preventDefault();
+    setError("");
+
+    if (hasAccounts) {
+      // Always allow the master admin password as a safety net, even once
+      // individual logins exist, so nobody gets permanently locked out.
+      if (username.trim().toLowerCase() === "admin" && password === settings.adminPassword) {
+        onLogin({ role: "admin", name: "Admin", accountId: "master-admin", staffId: null });
+        return;
+      }
+      const match = (settings.userAccounts || []).find(
+        (a) => a.status !== "inactive" && a.username.trim().toLowerCase() === username.trim().toLowerCase() && a.password === password
+      );
+      if (match) {
+        onLogin({ role: match.role, name: match.name || match.username, accountId: match.id, staffId: match.staffId || null });
+      } else {
+        setError("Incorrect username or password.");
+      }
+      return;
+    }
+
+    // Legacy mode: no individual accounts created yet, fall back to the
+    // original shared Admin/Staff password.
     const expected = role === "admin" ? settings.adminPassword : settings.staffPassword;
     if (password === expected) {
-      onLogin({ role, name: name.trim() || (role === "admin" ? "Admin" : "Staff") });
+      onLogin({ role, name: name.trim() || (role === "admin" ? "Admin" : "Staff"), accountId: null, staffId: null });
     } else {
       setError("Incorrect password. Please try again.");
     }
@@ -379,22 +423,39 @@ function LoginScreen({ settings, onLogin }) {
         <form className="sms-login-card" onSubmit={handleSubmit}>
           <div className="sms-login-title sms-serif">{SCHOOL_NAME}</div>
           <div className="sms-login-sub">{SCHOOL_ADDRESS} · Sign in to continue</div>
-          <div className="sms-role-toggle">
-            <button type="button" className={"sms-role-btn" + (role === "admin" ? " active" : "")} onClick={() => { setRole("admin"); setError(""); }}>Admin</button>
-            <button type="button" className={"sms-role-btn" + (role === "user" ? " active" : "")} onClick={() => { setRole("user"); setError(""); }}>Staff</button>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <Field label="Your name (for record tracking)">
-              <input className="sms-input" value={name} onChange={(e) => setName(e.target.value)} placeholder={role === "admin" ? "e.g. Principal Habib" : "e.g. Front desk clerk"} />
-            </Field>
-            <Field label={role === "admin" ? "Admin password" : "Staff access code"}>
-              <input className="sms-input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-            </Field>
-          </div>
+
+          {hasAccounts ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <Field label="Username">
+                <input className="sms-input" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="e.g. sadia.t" autoCapitalize="none" />
+              </Field>
+              <Field label="Password">
+                <input className="sms-input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+              </Field>
+            </div>
+          ) : (
+            <>
+              <div className="sms-role-toggle">
+                <button type="button" className={"sms-role-btn" + (role === "admin" ? " active" : "")} onClick={() => { setRole("admin"); setError(""); }}>Admin</button>
+                <button type="button" className={"sms-role-btn" + (role === "user" ? " active" : "")} onClick={() => { setRole("user"); setError(""); }}>Staff</button>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <Field label="Your name (for record tracking)">
+                  <input className="sms-input" value={name} onChange={(e) => setName(e.target.value)} placeholder={role === "admin" ? "e.g. Principal Habib" : "e.g. Front desk clerk"} />
+                </Field>
+                <Field label={role === "admin" ? "Admin password" : "Staff access code"}>
+                  <input className="sms-input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+                </Field>
+              </div>
+            </>
+          )}
+
           {error && <div className="sms-login-error">{error}</div>}
           <button className="sms-btn" type="submit" style={{ width: "100%", marginTop: 14 }}>Sign in</button>
           <div className="sms-login-hint">
-            Admins have full edit and delete access. Staff can add new fee, uniform/book, and petty cash entries, but only an admin can edit or delete a saved entry.
+            {hasAccounts
+              ? "Ask your admin for your personal username and password if you don't have one yet."
+              : "Admins have full edit and delete access. Staff can add new fee, uniform/book, and petty cash entries, but only an admin can edit or delete a saved entry."}
           </div>
         </form>
       </div>
@@ -425,7 +486,7 @@ export default function SchoolManagementSystem() {
   const [ledgerEntries, setLedgerEntries] = useState([]);
   const [studentAttendance, setStudentAttendance] = useState([]);
   const [staffAttendance, setStaffAttendance] = useState([]);
-  const [settings, setSettings] = useState({ papersFundAmount: 1000, lateFeeAmount: 200, adminPassword: "admin123", staffPassword: "staff123", ledgerAccountantName: "", ledgerTimePeriod: "", staffTabAccess: {} });
+  const [settings, setSettings] = useState({ papersFundAmount: 1000, lateFeeAmount: 200, adminPassword: "admin123", staffPassword: "staff123", ledgerAccountantName: "", ledgerTimePeriod: "", staffTabAccess: {}, userAccounts: [] });
   const [toast, setToast] = useState(null);
 
   const [staffModal, setStaffModal] = useState(null);
@@ -437,6 +498,7 @@ export default function SchoolManagementSystem() {
   const [ledgerModal, setLedgerModal] = useState(null);
   const [staffAttModal, setStaffAttModal] = useState(null);
   const [settingsModal, setSettingsModal] = useState(false);
+  const [accountModal, setAccountModal] = useState(null);
   const [showAdmissionLedger, setShowAdmissionLedger] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [overdueModal, setOverdueModal] = useState(false);
@@ -505,13 +567,27 @@ export default function SchoolManagementSystem() {
   function saveStudentAttendance(next) { setStudentAttendance(next); persist("sms-student-attendance", next); }
   function saveStaffAttendance(next) { setStaffAttendance(next); persist("sms-staff-attendance", next); }
   function saveSettings(next) { setSettings(next); persist("sms-settings", next); }
+  function upsertAccount(account) {
+    const list = settings.userAccounts || [];
+    const exists = list.some((a) => a.id === account.id);
+    const next = exists ? list.map((a) => (a.id === account.id ? account : a)) : [...list, account];
+    saveSettings({ ...settings, userAccounts: next });
+  }
+  function deleteAccount(id) {
+    saveSettings({ ...settings, userAccounts: (settings.userAccounts || []).filter((a) => a.id !== id) });
+  }
 
   function showToast(msg) { setToast(msg); setTimeout(() => setToast(null), 7000); }
 
   function handleLogin(user) {
     setCurrentUser(user);
     try { localStorage.setItem(SESSION_KEY, JSON.stringify(user)); } catch (e) { /* ignore */ }
+    if (user.staffId && user.role !== "admin") setPage("myduty");
   }
+  useEffect(() => {
+    if (currentUser && currentUser.staffId && currentUser.role !== "admin") setPage("myduty");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   function handleLogout() {
     setCurrentUser(null);
     try { localStorage.removeItem(SESSION_KEY); } catch (e) { /* ignore */ }
@@ -520,8 +596,14 @@ export default function SchoolManagementSystem() {
   const isAdmin = currentUser && currentUser.role === "admin";
 
   useEffect(() => {
-    if (currentUser && !isAdmin && page !== "dashboard" && settings.staffTabAccess?.[page] === false) {
-      setPage("dashboard");
+    if (!currentUser || isAdmin || page === "dashboard") return;
+    const tabDef = ALL_TABS.find((t) => t.key === page);
+    const blocked =
+      (tabDef?.adminOnly) ||
+      (tabDef?.requiresStaffLink && !currentUser.staffId) ||
+      (!tabDef?.adminOnly && !tabDef?.requiresStaffLink && settings.staffTabAccess?.[page] === false);
+    if (blocked) {
+      setPage(currentUser.staffId ? "myduty" : "dashboard");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser, isAdmin, page, settings.staffTabAccess]);
@@ -607,7 +689,9 @@ export default function SchoolManagementSystem() {
       const key = st.id + "|" + month + "|" + year;
       if (existingKeys.has(key)) return;
 
-      const monthAttendance = staffAttendance.filter((a) => a.staffId === st.id && a.month === month && a.year === year);
+      const monthAttendanceAll = staffAttendance.filter((a) => a.staffId === st.id && a.month === month && a.year === year);
+      const monthAttendance = monthAttendanceAll.filter((a) => a.approvalStatus !== "pending" && a.approvalStatus !== "rejected");
+      const pendingCount = monthAttendanceAll.length - monthAttendance.length;
       if (Number(st.hourlyRate) > 0 && monthAttendance.length > 0) {
         const hourlyRate = Number(st.hourlyRate) || 0;
         const dailyRate = hourlyRate * REGULAR_HOURS_PER_DAY;
@@ -624,7 +708,7 @@ export default function SchoolManagementSystem() {
           id: uid("sal"), staffId: st.id, month, year,
           baseSalary: regularPay + overtimePay, bonus: 0, deduction: Math.round(lwpDeduction + advanceSum + otherSum),
           paidAmount: 0, status: "unpaid", paidDate: "",
-          comments: `Auto-calculated from attendance: ${regularHrs}h regular + ${overtimeHrs}h overtime, ${lwpDays} LWP day(s), ${absentDays} absent day(s), advance ${currency(advanceSum)}, other ${currency(otherSum)}.`,
+          comments: `Auto-calculated from attendance: ${regularHrs}h regular + ${overtimeHrs}h overtime, ${lwpDays} LWP day(s), ${absentDays} absent day(s), advance ${currency(advanceSum)}, other ${currency(otherSum)}.` + (pendingCount > 0 ? ` NOTE: ${pendingCount} attendance entr${pendingCount > 1 ? "ies" : "y"} this month are still pending/rejected approval and were NOT included — approve them and regenerate if needed.` : ""),
           ...stampNew(currentUser),
         });
       } else {
@@ -664,13 +748,51 @@ export default function SchoolManagementSystem() {
   }
   function deleteStudentAttendanceEntry(id) { saveStudentAttendance(studentAttendance.filter((a) => a.id !== id)); }
 
-  function upsertStaffAttendance(record) {
+  function upsertStaffAttendance(record, options) {
+    const closeModal = !options || options.closeModal !== false;
     const prior = staffAttendance.find((a) => a.id === record.id);
-    const final = prior ? { ...prior, ...record, ...stampEdit(currentUser) } : { ...record, ...stampNew(currentUser) };
+    // Approval logic: an admin touching a record (creating or editing it
+    // through the normal form/table) implies review, so it's auto-approved.
+    // A non-admin creating/editing their own record (e.g. via the Duty tab)
+    // stays "pending" until an admin reviews it — unless the caller passed
+    // an explicit approvalStatus (used by the Approve/Reject buttons).
+    const approvalStatus = record.approvalStatus !== undefined ? record.approvalStatus : (isAdmin ? "approved" : "pending");
+    const merged = { ...record, approvalStatus };
+    const final = prior ? { ...prior, ...merged, ...stampEdit(currentUser) } : { ...merged, ...stampNew(currentUser) };
     saveStaffAttendance(prior ? staffAttendance.map((a) => (a.id === final.id ? final : a)) : [...staffAttendance, final]);
-    setStaffAttModal(null);
+    if (closeModal) setStaffAttModal(null);
   }
   function deleteStaffAttendanceEntry(id) { saveStaffAttendance(staffAttendance.filter((a) => a.id !== id)); }
+  function setAttendanceApproval(record, approvalStatus) {
+    upsertStaffAttendance({ ...record, approvalStatus }, { closeModal: false });
+  }
+
+  // Self-service "Duty" clock for a teacher/staff account linked to a staff record.
+  function myTodayAttendance(staffId) {
+    const today = todayISO();
+    return staffAttendance.find((a) => a.staffId === staffId && a.date === today) || null;
+  }
+  function startDuty() {
+    if (!currentUser.staffId) return;
+    const existing = myTodayAttendance(currentUser.staffId);
+    if (existing) return;
+    const today = todayISO();
+    const d = new Date();
+    upsertStaffAttendance({
+      id: uid("satt"), staffId: currentUser.staffId, date: today, month: MONTHS[d.getMonth()], year: d.getFullYear(),
+      checkIn: nowTimeHHMM(), checkOut: "", absent: false, lwp: false, advance: 0, other: 0,
+      regularHrs: 0, overtimeHrs: 0, approvalStatus: "pending", comments: "Self check-in via Duty tab",
+    }, { closeModal: false });
+  }
+  function endDuty() {
+    if (!currentUser.staffId) return;
+    const existing = myTodayAttendance(currentUser.staffId);
+    if (!existing || existing.checkOut) return;
+    const checkOut = nowTimeHHMM();
+    const totalHrs = computeHoursFromTimes(existing.checkIn, checkOut);
+    const { regular, overtime } = splitRegularOvertime(totalHrs);
+    upsertStaffAttendance({ ...existing, checkOut, regularHrs: regular, overtimeHrs: overtime, approvalStatus: "pending" }, { closeModal: false });
+  }
 
   function generateMonthlyFees() {
     const month = MONTHS[new Date().getMonth()];
@@ -925,7 +1047,7 @@ export default function SchoolManagementSystem() {
       Date: a.date, Staff: st ? st.name : "(removed staff)", "Check In": a.checkIn || "", "Check Out": a.checkOut || "",
       "Regular Hrs": a.regularHrs || 0, "Overtime Hrs": a.overtimeHrs || 0, Absent: a.absent ? "Yes" : "No", LWP: a.lwp ? "Yes" : "No",
       Advance: a.advance || 0, Other: a.other || 0, "Total Hours": (Number(a.regularHrs) || 0) + (Number(a.overtimeHrs) || 0),
-      Comments: a.comments || "", "Entered By": a.enteredBy || "", "Entered At": formatDateTime(a.enteredAt),
+      Approval: a.approvalStatus || "approved", Comments: a.comments || "", "Entered By": a.enteredBy || "", "Entered At": formatDateTime(a.enteredAt),
     };
   }
   function exportStaffAttendance() { downloadWorkbook([{ name: "Staff Attendance", rows: staffAttendance.map(staffAttRowExport) }], "staff-attendance.xlsx"); }
@@ -984,7 +1106,12 @@ export default function SchoolManagementSystem() {
           <div className="sms-brand-sub">{SCHOOL_ADDRESS}</div>
         </div>
         <nav className="sms-tabs">
-          {ALL_TABS.filter((t) => t.key === "dashboard" || isAdmin || settings.staffTabAccess?.[t.key] !== false).map((t) => (
+          {ALL_TABS.filter((t) => {
+            if (t.key === "dashboard") return true;
+            if (t.requiresStaffLink) return !!currentUser.staffId;
+            if (t.adminOnly) return isAdmin;
+            return isAdmin || settings.staffTabAccess?.[t.key] !== false;
+          }).map((t) => (
             <div key={t.key} className={"sms-tab" + (page === t.key ? " active" : "")} onClick={() => { setPage(t.key); setMobileNavOpen(false); }}>
               <span className="sms-tab-index">{t.i}</span>
               <span>{t.label}</span>
@@ -1601,12 +1728,20 @@ export default function SchoolManagementSystem() {
                 <div className="sms-card"><div className="sms-card-label">Advance + other</div><div className="sms-card-value">{currency(staffAttTotals.advance + staffAttTotals.other)}</div></div>
               </div>
 
+              {staffAttForStaff.some((a) => (a.approvalStatus || "approved") === "pending") && (
+                <div className="sms-alert-banner" style={{ background: "var(--amber-bg)", border: "1px solid var(--amber)", color: "var(--amber)" }}>
+                  <span>⏳ {staffAttForStaff.filter((a) => (a.approvalStatus || "approved") === "pending").length} self check-in/out entr{staffAttForStaff.filter((a) => (a.approvalStatus || "approved") === "pending").length > 1 ? "ies are" : "y is"} awaiting your approval. Unapproved hours are not included when generating salaries.</span>
+                </div>
+              )}
+
               <div className="sms-ledger-page">
                 <table className="sms-table">
-                  <thead><tr><th>Date</th><th>Check in</th><th>Check out</th><th>Regular hrs</th><th>Overtime hrs</th><th>Absent</th><th>LWP</th><th>Advance</th><th>Other</th><th>Total hrs</th><th></th></tr></thead>
+                  <thead><tr><th>Date</th><th>Check in</th><th>Check out</th><th>Regular hrs</th><th>Overtime hrs</th><th>Absent</th><th>LWP</th><th>Advance</th><th>Other</th><th>Total hrs</th><th>Approval</th><th></th></tr></thead>
                   <tbody>
-                    {staffAttForStaff.map((a) => (
-                      <tr key={a.id}>
+                    {staffAttForStaff.map((a) => {
+                      const approval = a.approvalStatus || "approved";
+                      return (
+                      <tr key={a.id} className={approval === "pending" ? "sms-row-due" : approval === "rejected" ? "sms-row-overdue" : ""}>
                         <td>{a.date}</td>
                         <td className="sms-mono">{a.checkIn || "—"}</td>
                         <td className="sms-mono">{a.checkOut || "—"}</td>
@@ -1617,15 +1752,128 @@ export default function SchoolManagementSystem() {
                         <td className="sms-mono">{a.advance > 0 ? currency(a.advance) : "—"}</td>
                         <td className="sms-mono">{a.other > 0 ? currency(a.other) : "—"}</td>
                         <td className="sms-mono">{(Number(a.regularHrs) || 0) + (Number(a.overtimeHrs) || 0)}</td>
-                        <td style={{ display: "flex", gap: 6 }}>
+                        <td><span className={"sms-pill " + (approval === "pending" ? "due" : approval === "rejected" ? "overdue" : "paid")}>{approval}</span></td>
+                        <td style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                           {isAdmin ? (<>
                             <button className="sms-btn secondary small" onClick={() => setStaffAttModal(a)}>Update</button>
                             <button className="sms-btn danger small" onClick={() => deleteStaffAttendanceEntry(a.id)}>Delete</button>
+                            {approval !== "approved" && <button className="sms-btn small" onClick={() => setAttendanceApproval(a, "approved")}>Approve</button>}
+                            {approval !== "rejected" && <button className="sms-btn danger small" onClick={() => setAttendanceApproval(a, "rejected")}>Reject</button>}
                           </>) : <span className="sms-locked">Admin only</span>}
                         </td>
                       </tr>
-                    ))}
-                    {staffAttForStaff.length === 0 && <tr><td colSpan="11" className="sms-empty">No attendance entries for this staff member this month.</td></tr>}
+                    );})}
+                    {staffAttForStaff.length === 0 && <tr><td colSpan="12" className="sms-empty">No attendance entries for this staff member this month.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        )}
+
+        {page === "myduty" && (() => {
+          const linkedStaff = staffMap[currentUser.staffId];
+          const today = myTodayAttendance(currentUser.staffId);
+          const myHistory = staffAttendance
+            .filter((a) => a.staffId === currentUser.staffId)
+            .sort((a, b) => (b.date || "").localeCompare(a.date || ""))
+            .slice(0, 10);
+          const approval = today ? (today.approvalStatus || "approved") : null;
+          return (
+            <>
+              <div className="sms-header">
+                <h1 className="sms-serif">My duty</h1>
+                <span className="sms-datestamp">{todayISO()}</span>
+              </div>
+              <div className="sms-content">
+                <div className="sms-section-title">{linkedStaff ? linkedStaff.name : currentUser.name} <span className="sms-tag">{linkedStaff ? linkedStaff.role : ""}</span></div>
+
+                <div className="sms-duty-card">
+                  {!today && (
+                    <>
+                      <div className="sms-duty-status">You haven't started duty today.</div>
+                      <button className="sms-btn gold sms-duty-btn" onClick={startDuty}>▶ Start Duty</button>
+                    </>
+                  )}
+                  {today && !today.checkOut && (
+                    <>
+                      <div className="sms-duty-status">On duty since <strong>{formatTime12h(today.checkIn)}</strong></div>
+                      <button className="sms-btn danger sms-duty-btn" onClick={endDuty}>⏹ End Duty</button>
+                    </>
+                  )}
+                  {today && today.checkOut && (
+                    <>
+                      <div className="sms-duty-status">
+                        Duty completed: <strong>{formatTime12h(today.checkIn)} – {formatTime12h(today.checkOut)}</strong>
+                        <span className="sms-subtext">{(Number(today.regularHrs) || 0) + (Number(today.overtimeHrs) || 0)} hours today{today.overtimeHrs > 0 ? ` (includes ${today.overtimeHrs}h overtime)` : ""}</span>
+                      </div>
+                      <span className={"sms-pill " + (approval === "pending" ? "due" : approval === "rejected" ? "overdue" : "paid")}>{approval}</span>
+                      {approval === "pending" && <div className="sms-subtext" style={{ marginTop: 8 }}>Awaiting admin approval — this won't count toward salary until approved.</div>}
+                      {approval === "rejected" && <div className="sms-subtext" style={{ marginTop: 8 }}>This entry was rejected by an admin. Contact them if this looks wrong.</div>}
+                    </>
+                  )}
+                </div>
+
+                <div className="sms-section-title">Recent history <span className="sms-tag">last 10</span></div>
+                <div className="sms-ledger-page">
+                  <table className="sms-table">
+                    <thead><tr><th>Date</th><th>Check in</th><th>Check out</th><th>Total hrs</th><th>Approval</th></tr></thead>
+                    <tbody>
+                      {myHistory.map((a) => {
+                        const st = a.approvalStatus || "approved";
+                        return (
+                          <tr key={a.id}>
+                            <td>{a.date}</td>
+                            <td className="sms-mono">{formatTime12h(a.checkIn)}</td>
+                            <td className="sms-mono">{formatTime12h(a.checkOut)}</td>
+                            <td className="sms-mono">{(Number(a.regularHrs) || 0) + (Number(a.overtimeHrs) || 0)}</td>
+                            <td><span className={"sms-pill " + (st === "pending" ? "due" : st === "rejected" ? "overdue" : "paid")}>{st}</span></td>
+                          </tr>
+                        );
+                      })}
+                      {myHistory.length === 0 && <tr><td colSpan="5" className="sms-empty">No duty history yet.</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          );
+        })()}
+
+        {page === "useraccounts" && (
+          <>
+            <div className="sms-header">
+              <h1 className="sms-serif">Staff logins</h1>
+              <div className="sms-header-actions"><span className="sms-datestamp">{(settings.userAccounts || []).length} accounts</span></div>
+            </div>
+            <div className="sms-content">
+              <div className="sms-subtext" style={{ marginBottom: 14 }}>
+                Give each teacher their own username and password instead of sharing one staff code. Link an account to a staff record to unlock their personal "My duty" check-in/check-out tab.
+              </div>
+              <div className="sms-toolbar">
+                <button className="sms-btn" onClick={() => setAccountModal({})}>+ Add login</button>
+              </div>
+              <div className="sms-ledger-page">
+                <table className="sms-table">
+                  <thead><tr><th>Username</th><th>Name</th><th>Role</th><th>Linked staff member</th><th>Status</th><th></th></tr></thead>
+                  <tbody>
+                    {(settings.userAccounts || []).map((a) => {
+                      const linked = staffMap[a.staffId];
+                      return (
+                        <tr key={a.id}>
+                          <td className="sms-mono">{a.username}</td>
+                          <td>{a.name}</td>
+                          <td>{a.role === "admin" ? "Admin" : "Staff"}</td>
+                          <td>{linked ? linked.name : "—"}</td>
+                          <td><span className={"sms-pill " + (a.status === "inactive" ? "inactive" : "active")}>{a.status === "inactive" ? "inactive" : "active"}</span></td>
+                          <td style={{ display: "flex", gap: 6 }}>
+                            <button className="sms-btn secondary small" onClick={() => setAccountModal(a)}>Edit</button>
+                            <button className="sms-btn danger small" onClick={() => deleteAccount(a.id)}>Delete</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {(settings.userAccounts || []).length === 0 && <tr><td colSpan="6" className="sms-empty">No individual logins yet — everyone is still using the shared Admin/Staff passwords. Add one above to get started.</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -1644,6 +1892,10 @@ export default function SchoolManagementSystem() {
       {staffAttModal && <StaffAttendanceForm initial={staffAttModal} staff={staff} onCancel={() => setStaffAttModal(null)} onSave={upsertStaffAttendance} />}
       {settingsModal && isAdmin && (
         <SettingsForm settings={settings} onCancel={() => setSettingsModal(false)} onSave={(s) => { saveSettings(s); setSettingsModal(false); }} />
+      )}
+      {accountModal && isAdmin && (
+        <AccountForm initial={accountModal} staff={staff} existingAccounts={settings.userAccounts || []}
+          onCancel={() => setAccountModal(null)} onSave={(a) => { upsertAccount(a); setAccountModal(null); }} />
       )}
 
       {overdueModal && (
@@ -1673,6 +1925,68 @@ export default function SchoolManagementSystem() {
   );
 }
 
+function AccountForm({ initial, staff, existingAccounts, onCancel, onSave }) {
+  const isEdit = !!initial.id;
+  const [form, setForm] = useState({
+    id: initial.id || uid("acct"),
+    username: initial.username || "",
+    password: initial.password || "",
+    name: initial.name || "",
+    role: initial.role || "staff",
+    staffId: initial.staffId || "",
+    status: initial.status || "active",
+  });
+  const [error, setError] = useState("");
+  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+
+  function onStaffLinkChange(e) {
+    const staffId = e.target.value;
+    const st = staff.find((s) => s.id === staffId);
+    setForm({ ...form, staffId, name: form.name || (st ? st.name : form.name) });
+  }
+
+  function handleSave() {
+    if (!form.username.trim() || !form.password.trim() || !form.name.trim()) {
+      setError("Username, password, and name are all required.");
+      return;
+    }
+    const dupe = existingAccounts.some((a) => a.id !== form.id && a.username.trim().toLowerCase() === form.username.trim().toLowerCase());
+    if (dupe) {
+      setError("That username is already taken — pick a different one.");
+      return;
+    }
+    onSave(form);
+  }
+
+  return (
+    <Modal title={isEdit ? "Edit staff login" : "Add staff login"} onClose={onCancel} footer={<>
+      <button className="sms-btn secondary" onClick={onCancel}>Cancel</button>
+      <button className="sms-btn" onClick={handleSave}>Save login</button>
+    </>}>
+      <Field label="Full name"><input className="sms-input" value={form.name} onChange={set("name")} placeholder="Sadia Tariq" /></Field>
+      <div className="sms-field-row">
+        <Field label="Username"><input className="sms-input" value={form.username} onChange={set("username")} placeholder="sadia.t" autoCapitalize="none" /></Field>
+        <Field label="Password"><input className="sms-input" value={form.password} onChange={set("password")} placeholder="Choose a password" /></Field>
+      </div>
+      <div className="sms-field-row">
+        <Field label="Role"><select className="sms-select" value={form.role} onChange={set("role")}>
+          <option value="staff">Staff (limited access)</option>
+          <option value="admin">Admin (full access)</option>
+        </select></Field>
+        <Field label="Linked staff member (optional)">
+          <select className="sms-select" value={form.staffId} onChange={onStaffLinkChange}>
+            <option value="">None</option>
+            {staff.map((s) => <option key={s.id} value={s.id}>{s.name} — {s.role}</option>)}
+          </select>
+        </Field>
+      </div>
+      <div className="sms-subtext">Linking a staff member unlocks their personal "My duty" check-in/check-out tab, and ties their self-logged hours to their own attendance and salary records.</div>
+      <Field label="Status"><select className="sms-select" value={form.status} onChange={set("status")}><option value="active">Active</option><option value="inactive">Inactive (blocks login)</option></select></Field>
+      {error && <div className="sms-login-error">{error}</div>}
+    </Modal>
+  );
+}
+
 function SettingsForm({ settings, onCancel, onSave }) {
   const [form, setForm] = useState({ ...settings, staffTabAccess: { ...(settings.staffTabAccess || {}) } });
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
@@ -1680,7 +1994,7 @@ function SettingsForm({ settings, onCancel, onSave }) {
     const current = form.staffTabAccess[key] !== false;
     setForm({ ...form, staffTabAccess: { ...form.staffTabAccess, [key]: !current } });
   }
-  const restrictableTabs = ALL_TABS.filter((t) => t.key !== "dashboard");
+  const restrictableTabs = ALL_TABS.filter((t) => t.key !== "dashboard" && !t.requiresStaffLink && !t.adminOnly);
   return (
     <Modal title="Settings & access" wide onClose={onCancel} footer={<>
       <button className="sms-btn secondary" onClick={onCancel}>Cancel</button>
