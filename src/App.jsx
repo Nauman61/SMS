@@ -594,6 +594,11 @@ export default function SchoolManagementSystem() {
   }
 
   const isAdmin = currentUser && currentUser.role === "admin";
+  const myAccount = currentUser?.accountId ? (settings.userAccounts || []).find((a) => a.id === currentUser.accountId) : null;
+  function hasTabAccess(key) {
+    if (myAccount?.customTabAccess) return myAccount.tabAccess?.[key] !== false;
+    return settings.staffTabAccess?.[key] !== false;
+  }
 
   useEffect(() => {
     if (!currentUser || isAdmin || page === "dashboard") return;
@@ -601,12 +606,12 @@ export default function SchoolManagementSystem() {
     const blocked =
       (tabDef?.adminOnly) ||
       (tabDef?.requiresStaffLink && !currentUser.staffId) ||
-      (!tabDef?.adminOnly && !tabDef?.requiresStaffLink && settings.staffTabAccess?.[page] === false);
+      (!tabDef?.adminOnly && !tabDef?.requiresStaffLink && !hasTabAccess(page));
     if (blocked) {
       setPage(currentUser.staffId ? "myduty" : "dashboard");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser, isAdmin, page, settings.staffTabAccess]);
+  }, [currentUser, isAdmin, page, settings.staffTabAccess, myAccount]);
 
   function upsertStaff(record) {
     const exists = staff.some((s) => s.id === record.id);
@@ -1110,7 +1115,7 @@ export default function SchoolManagementSystem() {
             if (t.key === "dashboard") return true;
             if (t.requiresStaffLink) return !!currentUser.staffId;
             if (t.adminOnly) return isAdmin;
-            return isAdmin || settings.staffTabAccess?.[t.key] !== false;
+            return isAdmin || hasTabAccess(t.key);
           }).map((t) => (
             <div key={t.key} className={"sms-tab" + (page === t.key ? " active" : "")} onClick={() => { setPage(t.key); setMobileNavOpen(false); }}>
               <span className="sms-tab-index">{t.i}</span>
@@ -1855,7 +1860,7 @@ export default function SchoolManagementSystem() {
               </div>
               <div className="sms-ledger-page">
                 <table className="sms-table">
-                  <thead><tr><th>Username</th><th>Name</th><th>Role</th><th>Linked staff member</th><th>Status</th><th></th></tr></thead>
+                  <thead><tr><th>Username</th><th>Name</th><th>Role</th><th>Linked staff member</th><th>Tab access</th><th>Status</th><th></th></tr></thead>
                   <tbody>
                     {(settings.userAccounts || []).map((a) => {
                       const linked = staffMap[a.staffId];
@@ -1865,6 +1870,7 @@ export default function SchoolManagementSystem() {
                           <td>{a.name}</td>
                           <td>{a.role === "admin" ? "Admin" : "Staff"}</td>
                           <td>{linked ? linked.name : "—"}</td>
+                          <td>{a.role === "admin" ? "Full access" : a.customTabAccess ? <span className="sms-pill fund">Custom</span> : <span className="sms-subtext">General default</span>}</td>
                           <td><span className={"sms-pill " + (a.status === "inactive" ? "inactive" : "active")}>{a.status === "inactive" ? "inactive" : "active"}</span></td>
                           <td style={{ display: "flex", gap: 6 }}>
                             <button className="sms-btn secondary small" onClick={() => setAccountModal(a)}>Edit</button>
@@ -1873,7 +1879,7 @@ export default function SchoolManagementSystem() {
                         </tr>
                       );
                     })}
-                    {(settings.userAccounts || []).length === 0 && <tr><td colSpan="6" className="sms-empty">No individual logins yet — everyone is still using the shared Admin/Staff passwords. Add one above to get started.</td></tr>}
+                    {(settings.userAccounts || []).length === 0 && <tr><td colSpan="7" className="sms-empty">No individual logins yet — everyone is still using the shared Admin/Staff passwords. Add one above to get started.</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -1894,7 +1900,7 @@ export default function SchoolManagementSystem() {
         <SettingsForm settings={settings} onCancel={() => setSettingsModal(false)} onSave={(s) => { saveSettings(s); setSettingsModal(false); }} />
       )}
       {accountModal && isAdmin && (
-        <AccountForm initial={accountModal} staff={staff} existingAccounts={settings.userAccounts || []}
+        <AccountForm initial={accountModal} staff={staff} existingAccounts={settings.userAccounts || []} globalStaffTabAccess={settings.staffTabAccess}
           onCancel={() => setAccountModal(null)} onSave={(a) => { upsertAccount(a); setAccountModal(null); }} />
       )}
 
@@ -1925,8 +1931,9 @@ export default function SchoolManagementSystem() {
   );
 }
 
-function AccountForm({ initial, staff, existingAccounts, onCancel, onSave }) {
+function AccountForm({ initial, staff, existingAccounts, globalStaffTabAccess, onCancel, onSave }) {
   const isEdit = !!initial.id;
+  const restrictableTabs = ALL_TABS.filter((t) => t.key !== "dashboard" && !t.requiresStaffLink && !t.adminOnly);
   const [form, setForm] = useState({
     id: initial.id || uid("acct"),
     username: initial.username || "",
@@ -1935,6 +1942,8 @@ function AccountForm({ initial, staff, existingAccounts, onCancel, onSave }) {
     role: initial.role || "staff",
     staffId: initial.staffId || "",
     status: initial.status || "active",
+    customTabAccess: initial.customTabAccess || false,
+    tabAccess: { ...(initial.tabAccess || {}) },
   });
   const [error, setError] = useState("");
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
@@ -1943,6 +1952,22 @@ function AccountForm({ initial, staff, existingAccounts, onCancel, onSave }) {
     const staffId = e.target.value;
     const st = staff.find((s) => s.id === staffId);
     setForm({ ...form, staffId, name: form.name || (st ? st.name : form.name) });
+  }
+  function toggleCustom(e) {
+    const on = e.target.checked;
+    if (on) {
+      // Seed the per-person checklist from the current general default so
+      // the admin starts from what this person already effectively sees.
+      const seeded = {};
+      restrictableTabs.forEach((t) => { seeded[t.key] = form.tabAccess[t.key] !== undefined ? form.tabAccess[t.key] : (globalStaffTabAccess?.[t.key] !== false); });
+      setForm({ ...form, customTabAccess: true, tabAccess: seeded });
+    } else {
+      setForm({ ...form, customTabAccess: false });
+    }
+  }
+  function toggleTab(key) {
+    const current = form.tabAccess[key] !== false;
+    setForm({ ...form, tabAccess: { ...form.tabAccess, [key]: !current } });
   }
 
   function handleSave() {
@@ -1959,7 +1984,7 @@ function AccountForm({ initial, staff, existingAccounts, onCancel, onSave }) {
   }
 
   return (
-    <Modal title={isEdit ? "Edit staff login" : "Add staff login"} onClose={onCancel} footer={<>
+    <Modal title={isEdit ? "Edit staff login" : "Add staff login"} wide onClose={onCancel} footer={<>
       <button className="sms-btn secondary" onClick={onCancel}>Cancel</button>
       <button className="sms-btn" onClick={handleSave}>Save login</button>
     </>}>
@@ -1982,6 +2007,28 @@ function AccountForm({ initial, staff, existingAccounts, onCancel, onSave }) {
       </div>
       <div className="sms-subtext">Linking a staff member unlocks their personal "My duty" check-in/check-out tab, and ties their self-logged hours to their own attendance and salary records.</div>
       <Field label="Status"><select className="sms-select" value={form.status} onChange={set("status")}><option value="active">Active</option><option value="inactive">Inactive (blocks login)</option></select></Field>
+
+      {form.role === "staff" && (
+        <>
+          <div className="sms-checkbox-row"><input type="checkbox" checked={form.customTabAccess} onChange={toggleCustom} id="customtabs" /><label htmlFor="customtabs">Give this person custom tab access (by position/designation), instead of the general staff default</label></div>
+          {form.customTabAccess ? (
+            <Field label="Tabs this person can see">
+              <div className="sms-subtext" style={{ marginBottom: 8 }}>Uncheck anything they shouldn't have access to — e.g. a Teacher might only need Student Attendance, while an Accountant needs Fee Ledger and Petty Cash.</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px" }}>
+                {restrictableTabs.map((t) => (
+                  <label key={t.key} className="sms-checkbox-row">
+                    <input type="checkbox" checked={form.tabAccess[t.key] !== false} onChange={() => toggleTab(t.key)} />
+                    {t.label}
+                  </label>
+                ))}
+              </div>
+            </Field>
+          ) : (
+            <div className="sms-subtext">This person follows the general staff default set in Settings &amp; access. Check the box above to set specific tabs for just this person instead.</div>
+          )}
+        </>
+      )}
+
       {error && <div className="sms-login-error">{error}</div>}
     </Modal>
   );
@@ -2008,8 +2055,8 @@ function SettingsForm({ settings, onCancel, onSave }) {
         <Field label="Admin password"><input className="sms-input" value={form.adminPassword} onChange={set("adminPassword")} /></Field>
         <Field label="Staff access code"><input className="sms-input" value={form.staffPassword} onChange={set("staffPassword")} /></Field>
       </div>
-      <Field label="Tab access for staff accounts">
-        <div className="sms-subtext" style={{ marginBottom: 8 }}>Dashboard is always visible to everyone. Uncheck any tab below to hide it from Staff logins — Admin always sees every tab regardless of these settings.</div>
+      <Field label="General default tab access for staff">
+        <div className="sms-subtext" style={{ marginBottom: 8 }}>Dashboard is always visible to everyone. This is the default used by the shared "Staff" login and any individual account without custom access set. To give a specific person a different set of tabs (e.g. by their position), edit their login in "Staff logins" instead.</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px" }}>
           {restrictableTabs.map((t) => (
             <label key={t.key} className="sms-checkbox-row">
