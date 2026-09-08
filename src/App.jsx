@@ -27,6 +27,27 @@ const ALL_TABS = [
   { key: "useraccounts", label: "Staff logins", i: "12", adminOnly: true },
 ];
 
+function resolveTabAccess(user, settings, tabKey) {
+  if (!user) return false;
+  if (user.role === "admin") return true;
+  const account = user.accountId ? (settings.userAccounts || []).find((a) => a.id === user.accountId) : null;
+  if (account?.customTabAccess) return account.tabAccess?.[tabKey] !== false;
+  return settings.staffTabAccess?.[tabKey] !== false;
+}
+// Finds the first tab a user is allowed to land on — used right after login
+// and after a page refresh, so nobody lands on a blank/blocked screen if
+// Dashboard (or anything else) has been restricted for their account.
+function firstAccessibleTab(user, settings) {
+  if (!user) return "dashboard";
+  if (user.role === "admin") return "dashboard";
+  if (user.staffId) return "myduty";
+  for (const t of ALL_TABS) {
+    if (t.adminOnly || t.requiresStaffLink) continue;
+    if (resolveTabAccess(user, settings, t.key)) return t.key;
+  }
+  return "noaccess";
+}
+
 function uid(prefix) {
   return prefix + "-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
@@ -582,10 +603,10 @@ export default function SchoolManagementSystem() {
   function handleLogin(user) {
     setCurrentUser(user);
     try { localStorage.setItem(SESSION_KEY, JSON.stringify(user)); } catch (e) { /* ignore */ }
-    if (user.staffId && user.role !== "admin") setPage("myduty");
+    setPage(firstAccessibleTab(user, settings));
   }
   useEffect(() => {
-    if (currentUser && currentUser.staffId && currentUser.role !== "admin") setPage("myduty");
+    if (currentUser) setPage(firstAccessibleTab(currentUser, settings));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   function handleLogout() {
@@ -601,17 +622,18 @@ export default function SchoolManagementSystem() {
   }
 
   useEffect(() => {
-    if (!currentUser || isAdmin || page === "dashboard") return;
+    if (!currentUser || isAdmin || page === "noaccess") return;
     const tabDef = ALL_TABS.find((t) => t.key === page);
     const blocked =
       (tabDef?.adminOnly) ||
       (tabDef?.requiresStaffLink && !currentUser.staffId) ||
       (!tabDef?.adminOnly && !tabDef?.requiresStaffLink && !hasTabAccess(page));
     if (blocked) {
-      setPage(currentUser.staffId ? "myduty" : "dashboard");
+      setPage(firstAccessibleTab(currentUser, settings));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser, isAdmin, page, settings.staffTabAccess, myAccount]);
+
 
   function upsertStaff(record) {
     const exists = staff.some((s) => s.id === record.id);
@@ -1112,7 +1134,6 @@ export default function SchoolManagementSystem() {
         </div>
         <nav className="sms-tabs">
           {ALL_TABS.filter((t) => {
-            if (t.key === "dashboard") return true;
             if (t.requiresStaffLink) return !!currentUser.staffId;
             if (t.adminOnly) return isAdmin;
             return isAdmin || hasTabAccess(t.key);
@@ -1886,6 +1907,18 @@ export default function SchoolManagementSystem() {
             </div>
           </>
         )}
+
+        {page === "noaccess" && (
+          <>
+            <div className="sms-header"><h1 className="sms-serif">No access yet</h1></div>
+            <div className="sms-content">
+              <div className="sms-empty" style={{ padding: 60 }}>
+                Your account doesn't currently have access to any section of the app.<br />
+                Please contact your admin to have some tabs enabled for your login.
+              </div>
+            </div>
+          </>
+        )}
       </main>
 
       {staffModal && <StaffForm initial={staffModal} onCancel={() => setStaffModal(null)} onSave={upsertStaff} />}
@@ -1933,7 +1966,7 @@ export default function SchoolManagementSystem() {
 
 function AccountForm({ initial, staff, existingAccounts, globalStaffTabAccess, onCancel, onSave }) {
   const isEdit = !!initial.id;
-  const restrictableTabs = ALL_TABS.filter((t) => t.key !== "dashboard" && !t.requiresStaffLink && !t.adminOnly);
+  const restrictableTabs = ALL_TABS.filter((t) => !t.requiresStaffLink && !t.adminOnly);
   const [form, setForm] = useState({
     id: initial.id || uid("acct"),
     username: initial.username || "",
@@ -2041,7 +2074,7 @@ function SettingsForm({ settings, onCancel, onSave }) {
     const current = form.staffTabAccess[key] !== false;
     setForm({ ...form, staffTabAccess: { ...form.staffTabAccess, [key]: !current } });
   }
-  const restrictableTabs = ALL_TABS.filter((t) => t.key !== "dashboard" && !t.requiresStaffLink && !t.adminOnly);
+  const restrictableTabs = ALL_TABS.filter((t) => !t.requiresStaffLink && !t.adminOnly);
   return (
     <Modal title="Settings & access" wide onClose={onCancel} footer={<>
       <button className="sms-btn secondary" onClick={onCancel}>Cancel</button>
@@ -2056,7 +2089,7 @@ function SettingsForm({ settings, onCancel, onSave }) {
         <Field label="Staff access code"><input className="sms-input" value={form.staffPassword} onChange={set("staffPassword")} /></Field>
       </div>
       <Field label="General default tab access for staff">
-        <div className="sms-subtext" style={{ marginBottom: 8 }}>Dashboard is always visible to everyone. This is the default used by the shared "Staff" login and any individual account without custom access set. To give a specific person a different set of tabs (e.g. by their position), edit their login in "Staff logins" instead.</div>
+        <div className="sms-subtext" style={{ marginBottom: 8 }}>Dashboard is included below like any other tab — uncheck it if staff shouldn't see overall totals and financial summaries. This is the default used by the shared "Staff" login and any individual account without custom access set. To give a specific person a different set of tabs (e.g. by their position), edit their login in "Staff logins" instead.</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px" }}>
           {restrictableTabs.map((t) => (
             <label key={t.key} className="sms-checkbox-row">
