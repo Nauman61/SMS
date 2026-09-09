@@ -12,19 +12,93 @@ const PETTY_SUGGESTIONS = ["Director","School Fund","Stationery","Utilities","Ma
 const LEDGER_SUGGESTIONS = ["Director","Bank","Vendor","Utility Company","Landlord","School Fund","Contractor","Supplier"];
 const REGULAR_HOURS_PER_DAY = 8;
 const OVERTIME_MULTIPLIER = 1.5;
+
+// ---------- Language / translations ----------
+// Covers navigation, login, Dashboard, and My Duty in full (the screens
+// teachers use every day), plus common actions/status words used
+// throughout the app. Screens not yet translated (most admin-only forms
+// and tables — Fee Ledger, Staff records, Petty Cash, etc.) simply stay in
+// English regardless of language selected; see README for how to extend.
+const TRANSLATIONS = {
+  en: {
+    schoolTagline: "Sign in to continue",
+    dashboard: "Dashboard", myDuty: "My duty", staffRecords: "Staff records", admissions: "Admissions",
+    feeLedger: "Fee ledger", uniformsBooks: "Uniforms & books", pettyCash: "Petty cash", staffSalary: "Staff salary",
+    ledgerReport: "Ledger report", studentAttendance: "Student attendance", staffAttendance: "Staff attendance",
+    staffLogins: "Staff logins",
+    settingsAccess: "⚙ Settings & access", logOut: "↩ Log out",
+    syncedCloud: "☁ Synced across devices", syncedLocal: "💻 Local only (this device)",
+    admin: "Admin", staff: "Staff", administrator: "Administrator",
+    username: "Username", password: "Password", signIn: "Sign in",
+    yourName: "Your name (for record tracking)", adminPassword: "Admin password", staffAccessCode: "Staff access code",
+    incorrectPassword: "Incorrect password. Please try again.", incorrectLogin: "Incorrect username or password.",
+    save: "Save", cancel: "Cancel", edit: "Edit", delete: "Delete", update: "Update", add: "Add",
+    approve: "Approve", reject: "Reject", exportExcel: "⬇ Export Excel",
+    active: "Active", inactive: "Inactive", present: "Present", absent: "Absent",
+    paid: "Paid", unpaid: "Unpaid", partial: "Partial", pending: "Pending", approved: "Approved", rejected: "Rejected", free: "Free/exempt",
+    activeStaff: "Active staff", activeStudents: "Active students", collected: "Collected", overdueStudents: "Overdue students", totalDuesPending: "Total dues pending",
+    thisMonthGlance: "This month at a glance", studentsPaidFee: "Students paid fee", studentsDue: "Students due",
+    uniformFundCollected: "Uniform fund collected", booksFundCollected: "Books fund collected",
+    staffAttendanceToday: "Staff attendance", today: "today", presentToday: "Present today", absentToday: "Absent today", notMarkedYet: "Not marked yet",
+    recentAdmissions: "Recent admissions", downloadReport: "⬇ Download full report (Excel)",
+    startDuty: "▶ Start Duty", endDuty: "⏹ End Duty",
+    notStartedDuty: "You haven't started duty today.", onDutySince: "On duty since", dutyCompleted: "Duty completed",
+    hoursToday: "hours today", includesOvertime: "includes overtime",
+    awaitingApproval: "Awaiting admin approval — this won't count toward salary until approved.",
+    entryRejected: "This entry was rejected by an admin. Contact them if this looks wrong.",
+    recentHistory: "Recent history", last10: "last 10", noHistoryYet: "No duty history yet.",
+    date: "Date", checkIn: "Check in", checkOut: "Check out", totalHrs: "Total hrs", approval: "Approval",
+    language: "Language",
+  },
+  ur: {
+    schoolTagline: "جاری رکھنے کے لیے سائن اِن کریں",
+    dashboard: "ڈیش بورڈ", myDuty: "میری ڈیوٹی", staffRecords: "عملے کا ریکارڈ", admissions: "داخلے",
+    feeLedger: "فیس لیجر", uniformsBooks: "یونیفارم اور کتابیں", pettyCash: "پیٹی کیش", staffSalary: "عملے کی تنخواہ",
+    ledgerReport: "لیجر رپورٹ", studentAttendance: "طلبہ کی حاضری", staffAttendance: "عملے کی حاضری",
+    staffLogins: "عملے کے لاگ اِن",
+    settingsAccess: "⚙ ترتیبات اور رسائی", logOut: "↩ لاگ آؤٹ",
+    syncedCloud: "☁ تمام آلات پر مطابقت پذیر", syncedLocal: "💻 صرف یہی آلہ",
+    admin: "ایڈمن", staff: "عملہ", administrator: "منتظم",
+    username: "یوزر نیم", password: "پاس ورڈ", signIn: "سائن اِن کریں",
+    yourName: "آپ کا نام (ریکارڈ کے لیے)", adminPassword: "ایڈمن پاس ورڈ", staffAccessCode: "عملے کا رسائی کوڈ",
+    incorrectPassword: "غلط پاس ورڈ۔ دوبارہ کوشش کریں۔", incorrectLogin: "غلط یوزر نیم یا پاس ورڈ۔",
+    save: "محفوظ کریں", cancel: "منسوخ کریں", edit: "ترمیم", delete: "حذف کریں", update: "اپ ڈیٹ کریں", add: "شامل کریں",
+    approve: "منظور کریں", reject: "مسترد کریں", exportExcel: "⬇ ایکسل میں ایکسپورٹ کریں",
+    active: "فعال", inactive: "غیر فعال", present: "حاضر", absent: "غیر حاضر",
+    paid: "ادا شدہ", unpaid: "غیر ادا شدہ", partial: "جزوی", pending: "زیرِ التوا", approved: "منظور شدہ", rejected: "مسترد شدہ", free: "مفت/مستثنیٰ",
+    activeStaff: "فعال عملہ", activeStudents: "فعال طلبہ", collected: "وصول شدہ", overdueStudents: "واجب الادا طلبہ", totalDuesPending: "کل بقایا رقم",
+    thisMonthGlance: "اس ماہ کا خلاصہ", studentsPaidFee: "فیس ادا کرنے والے طلبہ", studentsDue: "واجب الادا طلبہ",
+    uniformFundCollected: "یونیفارم فنڈ وصول شدہ", booksFundCollected: "کتابوں کا فنڈ وصول شدہ",
+    staffAttendanceToday: "عملے کی حاضری", today: "آج", presentToday: "آج حاضر", absentToday: "آج غیر حاضر", notMarkedYet: "ابھی درج نہیں ہوا",
+    recentAdmissions: "حالیہ داخلے", downloadReport: "⬇ مکمل رپورٹ ڈاؤن لوڈ کریں (ایکسل)",
+    startDuty: "▶ ڈیوٹی شروع کریں", endDuty: "⏹ ڈیوٹی ختم کریں",
+    notStartedDuty: "آپ نے آج ابھی ڈیوٹی شروع نہیں کی۔", onDutySince: "ڈیوٹی پر ہیں، وقت:", dutyCompleted: "ڈیوٹی مکمل ہوئی",
+    hoursToday: "آج کے گھنٹے", includesOvertime: "اووَر ٹائم شامل ہے",
+    awaitingApproval: "ایڈمن کی منظوری کا انتظار ہے — منظوری تک یہ تنخواہ میں شمار نہیں ہوگا۔",
+    entryRejected: "یہ اندراج ایڈمن نے مسترد کر دیا ہے۔ اگر یہ درست نہیں لگتا تو ان سے رابطہ کریں۔",
+    recentHistory: "حالیہ تاریخ", last10: "آخری 10", noHistoryYet: "ابھی تک کوئی ڈیوٹی ریکارڈ نہیں۔",
+    date: "تاریخ", checkIn: "حاضری وقت", checkOut: "روانگی وقت", totalHrs: "کل گھنٹے", approval: "منظوری",
+    language: "زبان",
+  },
+};
+function useTranslate(lang) {
+  const dict = TRANSLATIONS[lang] || TRANSLATIONS.en;
+  return (key) => dict[key] || TRANSLATIONS.en[key] || key;
+}
+
 const ALL_TABS = [
-  { key: "dashboard", label: "Dashboard", i: "01" },
-  { key: "myduty", label: "My duty", i: "02", requiresStaffLink: true },
-  { key: "staff", label: "Staff records", i: "03" },
-  { key: "admissions", label: "Admissions", i: "04" },
-  { key: "fees", label: "Fee ledger", i: "05" },
-  { key: "items", label: "Uniforms & books", i: "06" },
-  { key: "pettycash", label: "Petty cash", i: "07" },
-  { key: "salary", label: "Staff salary", i: "08" },
-  { key: "ledger", label: "Ledger report", i: "09" },
-  { key: "studentattendance", label: "Student attendance", i: "10" },
-  { key: "staffattendance", label: "Staff attendance", i: "11" },
-  { key: "useraccounts", label: "Staff logins", i: "12", adminOnly: true },
+  { key: "dashboard", label: "Dashboard", labelKey: "dashboard", i: "01" },
+  { key: "myduty", label: "My duty", labelKey: "myDuty", i: "02", requiresStaffLink: true },
+  { key: "staff", label: "Staff records", labelKey: "staffRecords", i: "03" },
+  { key: "admissions", label: "Admissions", labelKey: "admissions", i: "04" },
+  { key: "fees", label: "Fee ledger", labelKey: "feeLedger", i: "05" },
+  { key: "items", label: "Uniforms & books", labelKey: "uniformsBooks", i: "06" },
+  { key: "pettycash", label: "Petty cash", labelKey: "pettyCash", i: "07" },
+  { key: "salary", label: "Staff salary", labelKey: "staffSalary", i: "08" },
+  { key: "ledger", label: "Ledger report", labelKey: "ledgerReport", i: "09" },
+  { key: "studentattendance", label: "Student attendance", labelKey: "studentAttendance", i: "10" },
+  { key: "staffattendance", label: "Staff attendance", labelKey: "staffAttendance", i: "11" },
+  { key: "useraccounts", label: "Staff logins", labelKey: "staffLogins", i: "12", adminOnly: true },
 ];
 
 function resolveTabAccess(user, settings, tabKey) {
@@ -157,7 +231,7 @@ function formatTime12h(hhmm) {
 }
 
 const STYLES = `
-  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&family=Noto+Nastaliq+Urdu:wght@400;600;700&display=swap');
 
   .sms-root {
     --ink: #1E2A44; --ink-soft: #3B4A6B; --paper: #F6F1E4; --paper-2: #FDFBF5;
@@ -176,6 +250,20 @@ const STYLES = `
   .sms-login-title { font-size: 20px; color: var(--ink); margin-bottom: 2px; }
   .sms-login-sub { font-size: 11.5px; color: var(--gold-dark); margin-bottom: 22px; }
   .sms-role-toggle { display: flex; gap: 8px; margin-bottom: 16px; }
+  .sms-lang-switch { display: flex; gap: 6px; }
+  .sms-lang-btn { padding: 5px 12px; border-radius: 20px; border: 1px solid var(--line); background: var(--paper-2); font-size: 12px; font-weight: 600; cursor: pointer; color: var(--text-soft); }
+  .sms-lang-btn.active { background: var(--ink); color: #F6F1E4; border-color: var(--ink); }
+  .sms-login-lang { display: flex; justify-content: center; margin-bottom: 16px; }
+
+  .sms-root.rtl { direction: rtl; text-align: right; font-family: 'Noto Nastaliq Urdu', 'Inter', sans-serif; }
+  .sms-root.rtl .sms-serif { font-family: 'Noto Nastaliq Urdu', 'Playfair Display', serif; }
+  .sms-root.rtl .sms-tab { border-left: none; border-right: 3px solid transparent; }
+  .sms-root.rtl .sms-tab.active { border-left: none; border-right: 3px solid var(--gold); }
+  .sms-root.rtl .sms-tab-index { margin-left: 10px; }
+  .sms-root.rtl .sms-name-flag, .sms-root.rtl .sms-checkbox-row, .sms-root.rtl .sms-role-toggle, .sms-root.rtl .sms-toolbar, .sms-root.rtl .sms-header-actions, .sms-root.rtl .sms-field-row { direction: rtl; }
+  .sms-root.rtl table.sms-table th, .sms-root.rtl table.sms-table td, .sms-root.rtl table.sms-ledger-table th, .sms-root.rtl table.sms-ledger-table td { text-align: right; }
+  .sms-root.rtl .sms-ledger-page { padding-left: 0; padding-right: 28px; }
+  .sms-root.rtl .sms-ledger-page::before { left: auto; right: 20px; }
   .sms-role-btn { flex: 1; padding: 9px; border-radius: 6px; border: 1px solid var(--line); background: var(--paper-2); font-size: 13px; font-weight: 500; cursor: pointer; color: var(--text-soft); }
   .sms-role-btn.active { background: var(--ink); color: #F6F1E4; border-color: var(--ink); }
   .sms-login-error { color: var(--rust); font-size: 12px; margin-top: 6px; }
@@ -397,7 +485,7 @@ function Field({ label, children }) {
   );
 }
 
-function LoginScreen({ settings, onLogin }) {
+function LoginScreen({ settings, onLogin, language, changeLanguage, t }) {
   const hasAccounts = Array.isArray(settings.userAccounts) && settings.userAccounts.length > 0;
   const [role, setRole] = useState("admin");
   const [username, setUsername] = useState("");
@@ -422,7 +510,7 @@ function LoginScreen({ settings, onLogin }) {
       if (match) {
         onLogin({ role: match.role, name: match.name || match.username, accountId: match.id, staffId: match.staffId || null });
       } else {
-        setError("Incorrect username or password.");
+        setError(t("incorrectLogin"));
       }
       return;
     }
@@ -433,38 +521,44 @@ function LoginScreen({ settings, onLogin }) {
     if (password === expected) {
       onLogin({ role, name: name.trim() || (role === "admin" ? "Admin" : "Staff"), accountId: null, staffId: null });
     } else {
-      setError("Incorrect password. Please try again.");
+      setError(t("incorrectPassword"));
     }
   }
 
   return (
-    <div className="sms-root">
+    <div className={"sms-root" + (language === "ur" ? " rtl" : "")} dir={language === "ur" ? "rtl" : "ltr"}>
       <style>{STYLES}</style>
       <div className="sms-login-wrap">
         <form className="sms-login-card" onSubmit={handleSubmit}>
+          <div className="sms-login-lang">
+            <div className="sms-lang-switch">
+              <button type="button" className={"sms-lang-btn" + (language === "en" ? " active" : "")} onClick={() => changeLanguage("en")}>English</button>
+              <button type="button" className={"sms-lang-btn" + (language === "ur" ? " active" : "")} onClick={() => changeLanguage("ur")}>اردو</button>
+            </div>
+          </div>
           <div className="sms-login-title sms-serif">{SCHOOL_NAME}</div>
-          <div className="sms-login-sub">{SCHOOL_ADDRESS} · Sign in to continue</div>
+          <div className="sms-login-sub">{SCHOOL_ADDRESS} · {t("schoolTagline")}</div>
 
           {hasAccounts ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <Field label="Username">
+              <Field label={t("username")}>
                 <input className="sms-input" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="e.g. sadia.t" autoCapitalize="none" />
               </Field>
-              <Field label="Password">
+              <Field label={t("password")}>
                 <input className="sms-input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
               </Field>
             </div>
           ) : (
             <>
               <div className="sms-role-toggle">
-                <button type="button" className={"sms-role-btn" + (role === "admin" ? " active" : "")} onClick={() => { setRole("admin"); setError(""); }}>Admin</button>
-                <button type="button" className={"sms-role-btn" + (role === "user" ? " active" : "")} onClick={() => { setRole("user"); setError(""); }}>Staff</button>
+                <button type="button" className={"sms-role-btn" + (role === "admin" ? " active" : "")} onClick={() => { setRole("admin"); setError(""); }}>{t("admin")}</button>
+                <button type="button" className={"sms-role-btn" + (role === "user" ? " active" : "")} onClick={() => { setRole("user"); setError(""); }}>{t("staff")}</button>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                <Field label="Your name (for record tracking)">
+                <Field label={t("yourName")}>
                   <input className="sms-input" value={name} onChange={(e) => setName(e.target.value)} placeholder={role === "admin" ? "e.g. Principal Habib" : "e.g. Front desk clerk"} />
                 </Field>
-                <Field label={role === "admin" ? "Admin password" : "Staff access code"}>
+                <Field label={role === "admin" ? t("adminPassword") : t("staffAccessCode")}>
                   <input className="sms-input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
                 </Field>
               </div>
@@ -472,7 +566,7 @@ function LoginScreen({ settings, onLogin }) {
           )}
 
           {error && <div className="sms-login-error">{error}</div>}
-          <button className="sms-btn" type="submit" style={{ width: "100%", marginTop: 14 }}>Sign in</button>
+          <button className="sms-btn" type="submit" style={{ width: "100%", marginTop: 14 }}>{t("signIn")}</button>
           <div className="sms-login-hint">
             {hasAccounts
               ? "Ask your admin for your personal username and password if you don't have one yet."
@@ -493,9 +587,19 @@ function loadSavedSession() {
     return null;
   }
 }
+const LANG_KEY = "hss_language_v1";
+function loadSavedLanguage() {
+  try { return localStorage.getItem(LANG_KEY) || "en"; } catch (e) { return "en"; }
+}
 
 export default function SchoolManagementSystem() {
   const [currentUser, setCurrentUser] = useState(() => loadSavedSession());
+  const [language, setLanguage] = useState(() => loadSavedLanguage());
+  const t = useTranslate(language);
+  function changeLanguage(lang) {
+    setLanguage(lang);
+    try { localStorage.setItem(LANG_KEY, lang); } catch (e) { /* ignore */ }
+  }
   const [page, setPage] = useState("dashboard");
   const [loading, setLoading] = useState(true);
   const [staff, setStaff] = useState([]);
@@ -1110,11 +1214,11 @@ export default function SchoolManagementSystem() {
     return (<div className="sms-root"><style>{STYLES}</style><div className="sms-loading">Loading registry records…</div></div>);
   }
   if (!currentUser) {
-    return <LoginScreen settings={settings} onLogin={handleLogin} />;
+    return <LoginScreen settings={settings} onLogin={handleLogin} language={language} changeLanguage={changeLanguage} t={t} />;
   }
 
   return (
-    <div className="sms-root">
+    <div className={"sms-root" + (language === "ur" ? " rtl" : "")} dir={language === "ur" ? "rtl" : "ltr"}>
       <style>{STYLES}</style>
       {toast && <div className="sms-toast">{toast}</div>}
 
@@ -1122,7 +1226,7 @@ export default function SchoolManagementSystem() {
         <button className="sms-hamburger-btn" onClick={() => setMobileNavOpen(true)} aria-label="Open menu">☰</button>
         <div>
           <div className="title sms-serif">{SCHOOL_NAME}</div>
-          <div className="sub">{ALL_TABS.find((t) => t.key === page)?.label || ""}</div>
+          <div className="sub">{t(ALL_TABS.find((tb) => tb.key === page)?.labelKey) || ""}</div>
         </div>
       </div>
       <div className={"sms-sidebar-overlay" + (mobileNavOpen ? " open" : "")} onClick={() => setMobileNavOpen(false)} />
@@ -1133,25 +1237,29 @@ export default function SchoolManagementSystem() {
           <div className="sms-brand-sub">{SCHOOL_ADDRESS}</div>
         </div>
         <nav className="sms-tabs">
-          {ALL_TABS.filter((t) => {
-            if (t.requiresStaffLink) return !!currentUser.staffId;
-            if (t.adminOnly) return isAdmin;
-            return isAdmin || hasTabAccess(t.key);
-          }).map((t) => (
-            <div key={t.key} className={"sms-tab" + (page === t.key ? " active" : "")} onClick={() => { setPage(t.key); setMobileNavOpen(false); }}>
-              <span className="sms-tab-index">{t.i}</span>
-              <span>{t.label}</span>
-              {t.key === "fees" && overdueStudentIds.length > 0 && <span className="sms-tab-badge">{overdueStudentIds.length}</span>}
+          {ALL_TABS.filter((tb) => {
+            if (tb.requiresStaffLink) return !!currentUser.staffId;
+            if (tb.adminOnly) return isAdmin;
+            return isAdmin || hasTabAccess(tb.key);
+          }).map((tb) => (
+            <div key={tb.key} className={"sms-tab" + (page === tb.key ? " active" : "")} onClick={() => { setPage(tb.key); setMobileNavOpen(false); }}>
+              <span className="sms-tab-index">{tb.i}</span>
+              <span>{t(tb.labelKey)}</span>
+              {tb.key === "fees" && overdueStudentIds.length > 0 && <span className="sms-tab-badge">{overdueStudentIds.length}</span>}
             </div>
           ))}
         </nav>
         <div className="sms-sidebar-foot">
-          <div className="sms-user-chip">{currentUser.name}<span className="role">{currentUser.role === "admin" ? "Administrator" : "Staff"}</span></div>
-          <div className={"sms-sync-badge" + (typeof window !== "undefined" && window.__HSS_STORAGE_MODE__ === "cloud" ? " cloud" : "")}>
-            {typeof window !== "undefined" && window.__HSS_STORAGE_MODE__ === "cloud" ? "☁ Synced across devices" : "💻 Local only (this device)"}
+          <div className="sms-lang-switch" style={{ marginBottom: 10 }}>
+            <button type="button" className={"sms-lang-btn" + (language === "en" ? " active" : "")} onClick={() => changeLanguage("en")}>English</button>
+            <button type="button" className={"sms-lang-btn" + (language === "ur" ? " active" : "")} onClick={() => changeLanguage("ur")}>اردو</button>
           </div>
-          {isAdmin && <button className="sms-sidebar-link" onClick={() => { setSettingsModal(true); setMobileNavOpen(false); }}>⚙ Settings &amp; access</button>}
-          <button className="sms-sidebar-link" onClick={handleLogout}>↩ Log out</button>
+          <div className="sms-user-chip">{currentUser.name}<span className="role">{currentUser.role === "admin" ? t("administrator") : t("staff")}</span></div>
+          <div className={"sms-sync-badge" + (typeof window !== "undefined" && window.__HSS_STORAGE_MODE__ === "cloud" ? " cloud" : "")}>
+            {typeof window !== "undefined" && window.__HSS_STORAGE_MODE__ === "cloud" ? t("syncedCloud") : t("syncedLocal")}
+          </div>
+          {isAdmin && <button className="sms-sidebar-link" onClick={() => { setSettingsModal(true); setMobileNavOpen(false); }}>{t("settingsAccess")}</button>}
+          <button className="sms-sidebar-link" onClick={handleLogout}>{t("logOut")}</button>
         </div>
       </aside>
 
@@ -1159,10 +1267,10 @@ export default function SchoolManagementSystem() {
         {page === "dashboard" && (
           <>
             <div className="sms-header">
-              <h1 className="sms-serif">Dashboard</h1>
+              <h1 className="sms-serif">{t("dashboard")}</h1>
               <div className="sms-header-actions">
                 <span className="sms-datestamp">{todayISO()}</span>
-                <button className="sms-btn gold" onClick={exportFullReport}>⬇ Download full report (Excel)</button>
+                <button className="sms-btn gold" onClick={exportFullReport}>{t("downloadReport")}</button>
               </div>
             </div>
             <div className="sms-content">
@@ -1176,11 +1284,11 @@ export default function SchoolManagementSystem() {
                 </div>
               )}
               <div className="sms-cards-row">
-                <div className="sms-card"><div className="sms-card-label">Active staff</div><div className="sms-card-value">{activeStaffCount}</div></div>
-                <div className="sms-card"><div className="sms-card-label">Active students</div><div className="sms-card-value">{activeStudentCount}</div></div>
-                <div className="sms-card"><div className="sms-card-label">Collected — {currentMonth}</div><div className="sms-card-value green">{currency(collectedThisMonth)}</div></div>
+                <div className="sms-card"><div className="sms-card-label">{t("activeStaff")}</div><div className="sms-card-value">{activeStaffCount}</div></div>
+                <div className="sms-card"><div className="sms-card-label">{t("activeStudents")}</div><div className="sms-card-value">{activeStudentCount}</div></div>
+                <div className="sms-card"><div className="sms-card-label">{t("collected")} — {currentMonth}</div><div className="sms-card-value green">{currency(collectedThisMonth)}</div></div>
                 <div className={"sms-card" + (overdueStudentIds.length > 0 ? " warn" : "")}>
-                  <div className="sms-card-label">{overdueStudentIds.length > 0 ? "Overdue students" : "Total dues pending"}</div>
+                  <div className="sms-card-label">{overdueStudentIds.length > 0 ? t("overdueStudents") : t("totalDuesPending")}</div>
                   <div className="sms-card-value rust">{overdueStudentIds.length > 0 ? overdueStudentIds.length : currency(pendingDues)}</div>
                 </div>
               </div>
@@ -1190,22 +1298,22 @@ export default function SchoolManagementSystem() {
                 </div>
               )}
 
-              <div className="sms-section-title">This month at a glance <span className="sms-tag">{currentMonth} {currentYear}</span></div>
+              <div className="sms-section-title">{t("thisMonthGlance")} <span className="sms-tag">{currentMonth} {currentYear}</span></div>
               <div className="sms-cards-row">
-                <div className="sms-card"><div className="sms-card-label">Students paid fee</div><div className="sms-card-value green">{studentsPaidThisMonth}</div></div>
-                <div className="sms-card"><div className="sms-card-label">Students due</div><div className="sms-card-value rust">{studentsDueThisMonth}</div></div>
-                <div className="sms-card"><div className="sms-card-label">Uniform fund collected</div><div className="sms-card-value green">{currency(uniformCollectedThisMonth)}</div></div>
-                <div className="sms-card"><div className="sms-card-label">Books fund collected</div><div className="sms-card-value green">{currency(bookCollectedThisMonth)}</div></div>
+                <div className="sms-card"><div className="sms-card-label">{t("studentsPaidFee")}</div><div className="sms-card-value green">{studentsPaidThisMonth}</div></div>
+                <div className="sms-card"><div className="sms-card-label">{t("studentsDue")}</div><div className="sms-card-value rust">{studentsDueThisMonth}</div></div>
+                <div className="sms-card"><div className="sms-card-label">{t("uniformFundCollected")}</div><div className="sms-card-value green">{currency(uniformCollectedThisMonth)}</div></div>
+                <div className="sms-card"><div className="sms-card-label">{t("booksFundCollected")}</div><div className="sms-card-value green">{currency(bookCollectedThisMonth)}</div></div>
               </div>
 
-              <div className="sms-section-title">Staff attendance <span className="sms-tag">today · {todayStr}</span></div>
+              <div className="sms-section-title">{t("staffAttendanceToday")} <span className="sms-tag">{t("today")} · {todayStr}</span></div>
               <div className="sms-cards-row three">
-                <div className="sms-card"><div className="sms-card-label">Present today</div><div className="sms-card-value green">{staffPresentToday}</div></div>
-                <div className="sms-card"><div className="sms-card-label">Absent today</div><div className="sms-card-value rust">{staffAbsentToday}</div></div>
-                <div className="sms-card"><div className="sms-card-label">Not marked yet</div><div className="sms-card-value">{Math.max(activeStaffCount - staffAttToday.length, 0)}</div></div>
+                <div className="sms-card"><div className="sms-card-label">{t("presentToday")}</div><div className="sms-card-value green">{staffPresentToday}</div></div>
+                <div className="sms-card"><div className="sms-card-label">{t("absentToday")}</div><div className="sms-card-value rust">{staffAbsentToday}</div></div>
+                <div className="sms-card"><div className="sms-card-label">{t("notMarkedYet")}</div><div className="sms-card-value">{Math.max(activeStaffCount - staffAttToday.length, 0)}</div></div>
               </div>
 
-              <div className="sms-section-title">Recent admissions <span className="sms-tag">last 5</span></div>
+              <div className="sms-section-title">{t("recentAdmissions")} <span className="sms-tag">last 5</span></div>
               <div className="sms-ledger-page">
                 <table className="sms-table">
                   <thead><tr><th>Name</th><th>Class</th><th>Roll no.</th><th>Admission date</th><th>Status</th></tr></thead>
@@ -1808,7 +1916,7 @@ export default function SchoolManagementSystem() {
           return (
             <>
               <div className="sms-header">
-                <h1 className="sms-serif">My duty</h1>
+                <h1 className="sms-serif">{t("myDuty")}</h1>
                 <span className="sms-datestamp">{todayISO()}</span>
               </div>
               <div className="sms-content">
@@ -1817,33 +1925,33 @@ export default function SchoolManagementSystem() {
                 <div className="sms-duty-card">
                   {!today && (
                     <>
-                      <div className="sms-duty-status">You haven't started duty today.</div>
-                      <button className="sms-btn gold sms-duty-btn" onClick={startDuty}>▶ Start Duty</button>
+                      <div className="sms-duty-status">{t("notStartedDuty")}</div>
+                      <button className="sms-btn gold sms-duty-btn" onClick={startDuty}>{t("startDuty")}</button>
                     </>
                   )}
                   {today && !today.checkOut && (
                     <>
-                      <div className="sms-duty-status">On duty since <strong>{formatTime12h(today.checkIn)}</strong></div>
-                      <button className="sms-btn danger sms-duty-btn" onClick={endDuty}>⏹ End Duty</button>
+                      <div className="sms-duty-status">{t("onDutySince")} <strong>{formatTime12h(today.checkIn)}</strong></div>
+                      <button className="sms-btn danger sms-duty-btn" onClick={endDuty}>{t("endDuty")}</button>
                     </>
                   )}
                   {today && today.checkOut && (
                     <>
                       <div className="sms-duty-status">
-                        Duty completed: <strong>{formatTime12h(today.checkIn)} – {formatTime12h(today.checkOut)}</strong>
-                        <span className="sms-subtext">{(Number(today.regularHrs) || 0) + (Number(today.overtimeHrs) || 0)} hours today{today.overtimeHrs > 0 ? ` (includes ${today.overtimeHrs}h overtime)` : ""}</span>
+                        {t("dutyCompleted")}: <strong>{formatTime12h(today.checkIn)} – {formatTime12h(today.checkOut)}</strong>
+                        <span className="sms-subtext">{(Number(today.regularHrs) || 0) + (Number(today.overtimeHrs) || 0)} {t("hoursToday")}{today.overtimeHrs > 0 ? ` (${t("includesOvertime")}: ${today.overtimeHrs}h)` : ""}</span>
                       </div>
-                      <span className={"sms-pill " + (approval === "pending" ? "due" : approval === "rejected" ? "overdue" : "paid")}>{approval}</span>
-                      {approval === "pending" && <div className="sms-subtext" style={{ marginTop: 8 }}>Awaiting admin approval — this won't count toward salary until approved.</div>}
-                      {approval === "rejected" && <div className="sms-subtext" style={{ marginTop: 8 }}>This entry was rejected by an admin. Contact them if this looks wrong.</div>}
+                      <span className={"sms-pill " + (approval === "pending" ? "due" : approval === "rejected" ? "overdue" : "paid")}>{t(approval)}</span>
+                      {approval === "pending" && <div className="sms-subtext" style={{ marginTop: 8 }}>{t("awaitingApproval")}</div>}
+                      {approval === "rejected" && <div className="sms-subtext" style={{ marginTop: 8 }}>{t("entryRejected")}</div>}
                     </>
                   )}
                 </div>
 
-                <div className="sms-section-title">Recent history <span className="sms-tag">last 10</span></div>
+                <div className="sms-section-title">{t("recentHistory")} <span className="sms-tag">{t("last10")}</span></div>
                 <div className="sms-ledger-page">
                   <table className="sms-table">
-                    <thead><tr><th>Date</th><th>Check in</th><th>Check out</th><th>Total hrs</th><th>Approval</th></tr></thead>
+                    <thead><tr><th>{t("date")}</th><th>{t("checkIn")}</th><th>{t("checkOut")}</th><th>{t("totalHrs")}</th><th>{t("approval")}</th></tr></thead>
                     <tbody>
                       {myHistory.map((a) => {
                         const st = a.approvalStatus || "approved";
@@ -1853,11 +1961,11 @@ export default function SchoolManagementSystem() {
                             <td className="sms-mono">{formatTime12h(a.checkIn)}</td>
                             <td className="sms-mono">{formatTime12h(a.checkOut)}</td>
                             <td className="sms-mono">{(Number(a.regularHrs) || 0) + (Number(a.overtimeHrs) || 0)}</td>
-                            <td><span className={"sms-pill " + (st === "pending" ? "due" : st === "rejected" ? "overdue" : "paid")}>{st}</span></td>
+                            <td><span className={"sms-pill " + (st === "pending" ? "due" : st === "rejected" ? "overdue" : "paid")}>{t(st)}</span></td>
                           </tr>
                         );
                       })}
-                      {myHistory.length === 0 && <tr><td colSpan="5" className="sms-empty">No duty history yet.</td></tr>}
+                      {myHistory.length === 0 && <tr><td colSpan="5" className="sms-empty">{t("noHistoryYet")}</td></tr>}
                     </tbody>
                   </table>
                 </div>
