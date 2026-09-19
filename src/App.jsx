@@ -222,12 +222,18 @@ function nowTimeHHMM() {
   const d = new Date();
   return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
 }
+function nowTimeHHMMSS() {
+  const d = new Date();
+  return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0") + ":" + String(d.getSeconds()).padStart(2, "0");
+}
 function formatTime12h(hhmm) {
   if (!hhmm) return "—";
-  const [h, m] = hhmm.split(":").map(Number);
+  const parts = hhmm.split(":").map(Number);
+  const h = parts[0], m = parts[1], s = parts[2];
   const period = h >= 12 ? "PM" : "AM";
   const h12 = h % 12 === 0 ? 12 : h % 12;
-  return `${h12}:${String(m).padStart(2, "0")} ${period}`;
+  const secStr = s !== undefined && !Number.isNaN(s) ? ":" + String(s).padStart(2, "0") : "";
+  return `${h12}:${String(m).padStart(2, "0")}${secStr} ${period}`;
 }
 
 const STYLES = `
@@ -622,6 +628,7 @@ export default function SchoolManagementSystem() {
   const [salaryModal, setSalaryModal] = useState(null);
   const [ledgerModal, setLedgerModal] = useState(null);
   const [staffAttModal, setStaffAttModal] = useState(null);
+  const [bulkAttModal, setBulkAttModal] = useState(false);
   const [settingsModal, setSettingsModal] = useState(false);
   const [accountModal, setAccountModal] = useState(null);
   const [showAdmissionLedger, setShowAdmissionLedger] = useState(false);
@@ -636,6 +643,7 @@ export default function SchoolManagementSystem() {
   const [feeMonthFilter, setFeeMonthFilter] = useState(MONTHS[new Date().getMonth()]);
   const [feeYearFilter, setFeeYearFilter] = useState(new Date().getFullYear());
   const [feeStatusFilter, setFeeStatusFilter] = useState("all");
+  const [feeSearch, setFeeSearch] = useState("");
   const [pettyMonthFilter, setPettyMonthFilter] = useState(MONTHS[new Date().getMonth()]);
   const [pettyYearFilter, setPettyYearFilter] = useState(new Date().getFullYear());
   const [salaryMonthFilter, setSalaryMonthFilter] = useState(MONTHS[new Date().getMonth()]);
@@ -911,7 +919,7 @@ export default function SchoolManagementSystem() {
     const d = new Date();
     upsertStaffAttendance({
       id: uid("satt"), staffId: currentUser.staffId, date: today, month: MONTHS[d.getMonth()], year: d.getFullYear(),
-      checkIn: nowTimeHHMM(), checkOut: "", absent: false, lwp: false, advance: 0, other: 0,
+      checkIn: nowTimeHHMMSS(), checkOut: "", absent: false, lwp: false, advance: 0, other: 0,
       regularHrs: 0, overtimeHrs: 0, approvalStatus: "pending", comments: "Self check-in via Duty tab",
     }, { closeModal: false });
   }
@@ -919,10 +927,42 @@ export default function SchoolManagementSystem() {
     if (!currentUser.staffId) return;
     const existing = myTodayAttendance(currentUser.staffId);
     if (!existing || existing.checkOut) return;
-    const checkOut = nowTimeHHMM();
+    const checkOut = nowTimeHHMMSS();
     const totalHrs = computeHoursFromTimes(existing.checkIn, checkOut);
     const { regular, overtime } = splitRegularOvertime(totalHrs);
     upsertStaffAttendance({ ...existing, checkOut, regularHrs: regular, overtimeHrs: overtime, approvalStatus: "pending" }, { closeModal: false });
+  }
+
+  // Bulk-fills a whole month of standard-hours attendance for one staff
+  // member in one shot — for staff without phones who can't self check-in.
+  // Never overwrites a day that already has an entry (self check-in,
+  // manual entry, or a previous bulk run), and never fills future dates.
+  function bulkGenerateAttendance({ staffId, month, year, startTime, endTime, excludeSundays }) {
+    const monthIdx = MONTHS.indexOf(month);
+    const daysInMonth = new Date(year, monthIdx + 1, 0).getDate();
+    const existingDates = new Set(staffAttendance.filter((a) => a.staffId === staffId).map((a) => a.date));
+    const totalHrs = computeHoursFromTimes(startTime, endTime);
+    const { regular, overtime } = splitRegularOvertime(totalHrs);
+    const todayStr = todayISO();
+    const stamp = stampNew(currentUser);
+    const newRecords = [];
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dateStr = `${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      if (dateStr > todayStr) continue;
+      if (existingDates.has(dateStr)) continue;
+      const dow = new Date(year, monthIdx, day).getDay(); // 0 = Sunday
+      if (excludeSundays && dow === 0) continue;
+      newRecords.push({
+        id: uid("satt"), staffId, date: dateStr, month, year,
+        checkIn: startTime, checkOut: endTime, absent: false, lwp: false, advance: 0, other: 0,
+        regularHrs: regular, overtimeHrs: overtime,
+        approvalStatus: isAdmin ? "approved" : "pending",
+        comments: `Bulk-marked standard hours (${formatTime12h(startTime)} – ${formatTime12h(endTime)})`,
+        ...stamp,
+      });
+    }
+    if (newRecords.length) saveStaffAttendance([...staffAttendance, ...newRecords]);
+    return newRecords.length;
   }
 
   function generateMonthlyFees() {
@@ -1024,6 +1064,11 @@ export default function SchoolManagementSystem() {
     if (feeMonthFilter !== "all" && f.month !== feeMonthFilter) return false;
     if (f.year !== Number(feeYearFilter)) return false;
     if (feeStatusFilter !== "all" && (feeStatusFilter === "free" ? f.status !== "free" : f.status !== feeStatusFilter)) return false;
+    if (feeSearch.trim()) {
+      const st = studentMap[f.studentId];
+      const haystack = ((st ? st.name : "") + " " + (st ? st.rollNo : "") + " " + (st ? st.class : "")).toLowerCase();
+      if (!haystack.includes(feeSearch.trim().toLowerCase())) return false;
+    }
     return true;
   });
   const filteredItems = items.filter((i) => {
@@ -1488,6 +1533,7 @@ export default function SchoolManagementSystem() {
                 </div>
               )}
               <div className="sms-toolbar">
+                <input className="sms-input" placeholder="Search by student name, roll no., or class" value={feeSearch} onChange={(e) => setFeeSearch(e.target.value)} style={{ width: 260 }} />
                 <select className="sms-select" value={feeMonthFilter} onChange={(e) => setFeeMonthFilter(e.target.value)}>
                   <option value="all">All months</option>
                   {MONTHS.map((m) => <option key={m} value={m}>{m}{PAPERS_FUND_MONTHS.includes(m) ? " (papers fund)" : ""}</option>)}
@@ -1853,7 +1899,9 @@ export default function SchoolManagementSystem() {
                 <Field label="Month"><select className="sms-select" value={staffAttMonthFilter} onChange={(e) => setStaffAttMonthFilter(e.target.value)}>{MONTHS.map((m) => <option key={m}>{m}</option>)}</select></Field>
                 <Field label="Year"><input className="sms-input" type="number" style={{ width: 90 }} value={staffAttYearFilter} onChange={(e) => setStaffAttYearFilter(e.target.value)} /></Field>
                 <button className="sms-btn" onClick={() => setStaffAttModal({ staffId: effectiveStaffAttId, date: todayISO() })} disabled={!effectiveStaffAttId}>+ Add day entry</button>
+                <button className="sms-btn gold" onClick={() => setBulkAttModal(true)} disabled={staff.length === 0}>📅 Bulk mark month (standard hours)</button>
               </div>
+              <div className="sms-subtext" style={{ marginBottom: 14 }}>For staff without phones who can't use the check-in tab — fills in a whole month at standard hours in one go, without touching any day that already has an entry.</div>
 
               <div className="sms-cards-row">
                 <div className="sms-card"><div className="sms-card-label">Regular hrs</div><div className="sms-card-value">{staffAttTotals.regular}</div></div>
@@ -2037,6 +2085,15 @@ export default function SchoolManagementSystem() {
       {salaryModal && <SalaryForm initial={salaryModal} staff={staff} onCancel={() => setSalaryModal(null)} onSave={upsertSalary} />}
       {ledgerModal && <LedgerForm initial={ledgerModal} onCancel={() => setLedgerModal(null)} onSave={upsertLedger} />}
       {staffAttModal && <StaffAttendanceForm initial={staffAttModal} staff={staff} onCancel={() => setStaffAttModal(null)} onSave={upsertStaffAttendance} />}
+      {bulkAttModal && (
+        <BulkAttendanceForm staff={staff} defaultStaffId={effectiveStaffAttId} defaultMonth={staffAttMonthFilter} defaultYear={staffAttYearFilter}
+          onCancel={() => setBulkAttModal(false)}
+          onGenerate={(opts) => {
+            const n = bulkGenerateAttendance(opts);
+            setBulkAttModal(false);
+            alert(n > 0 ? `Marked ${n} day(s) of attendance for ${opts.month} ${opts.year}. Days that already had an entry were left untouched.` : "Nothing to add — every day this month either already has an entry, is a future date, or was excluded.");
+          }} />
+      )}
       {settingsModal && isAdmin && (
         <SettingsForm settings={settings} onCancel={() => setSettingsModal(false)} onSave={(s) => { saveSettings(s); setSettingsModal(false); }} />
       )}
@@ -2589,6 +2646,46 @@ function LedgerForm({ initial, onCancel, onSave }) {
       </Field>
       <Field label="Amount"><input className="sms-input" type="number" value={form.amount} onChange={set("amount")} placeholder="5000" /></Field>
       <Field label="Comments (optional)"><textarea value={form.comments} onChange={set("comments")} placeholder="Any notes…" /></Field>
+    </Modal>
+  );
+}
+
+function BulkAttendanceForm({ staff, defaultStaffId, defaultMonth, defaultYear, onCancel, onGenerate }) {
+  const [form, setForm] = useState({
+    staffId: defaultStaffId || (staff[0] ? staff[0].id : ""),
+    month: defaultMonth || MONTHS[new Date().getMonth()],
+    year: defaultYear || new Date().getFullYear(),
+    startTime: "07:00",
+    endTime: "15:00",
+    excludeSundays: true,
+  });
+  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  const setBool = (k) => (e) => setForm({ ...form, [k]: e.target.checked });
+  const totalHrs = computeHoursFromTimes(form.startTime, form.endTime);
+  const valid = !!form.staffId;
+
+  return (
+    <Modal title="Bulk mark a month's attendance" onClose={onCancel} footer={<>
+      <button className="sms-btn secondary" onClick={onCancel}>Cancel</button>
+      <button className="sms-btn" disabled={!valid} onClick={() => onGenerate({ ...form, year: Number(form.year) })}>Generate attendance</button>
+    </>}>
+      <Field label="Staff member">
+        <select className="sms-select" value={form.staffId} onChange={set("staffId")}>
+          {staff.map((s) => <option key={s.id} value={s.id}>{s.name} — {s.role}</option>)}
+        </select>
+      </Field>
+      <div className="sms-field-row">
+        <Field label="Month"><select className="sms-select" value={form.month} onChange={set("month")}>{MONTHS.map((m) => <option key={m}>{m}</option>)}</select></Field>
+        <Field label="Year"><input className="sms-input" type="number" value={form.year} onChange={set("year")} /></Field>
+      </div>
+      <div className="sms-field-row">
+        <Field label="Standard start time"><input className="sms-input" type="time" value={form.startTime} onChange={set("startTime")} /></Field>
+        <Field label="Standard end time"><input className="sms-input" type="time" value={form.endTime} onChange={set("endTime")} /></Field>
+      </div>
+      <div className="sms-checkbox-row"><input type="checkbox" checked={form.excludeSundays} onChange={setBool("excludeSundays")} id="exclsun" /><label htmlFor="exclsun">Skip Sundays</label></div>
+      <div className="sms-computed">
+        Will mark every remaining day this month (up to today) as {formatTime12h(form.startTime)} – {formatTime12h(form.endTime)} ({totalHrs} hours). Days that already have an attendance entry are left untouched — this only fills in the gaps.
+      </div>
     </Modal>
   );
 }
