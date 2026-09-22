@@ -1034,6 +1034,10 @@ export default function SchoolManagementSystem() {
   const staffAttToday = staffAttendance.filter((a) => a.date === todayStr);
   const staffPresentToday = staffAttToday.filter((a) => !a.absent).length;
   const staffAbsentToday = staffAttToday.filter((a) => a.absent).length;
+  const studentAttToday = studentAttendance.filter((a) => a.date === todayStr);
+  const studentsPresentToday = studentAttToday.filter((a) => a.status === "present").length;
+  const studentsAbsentToday = studentAttToday.filter((a) => a.status === "absent").length;
+  const studentsNotMarkedToday = Math.max(activeStudentCount - studentAttToday.length, 0);
 
   const studentMap = useMemo(() => Object.fromEntries(students.map((s) => [s.id, s])), [students]);
 
@@ -1349,6 +1353,13 @@ export default function SchoolManagementSystem() {
                 <div className="sms-card"><div className="sms-card-label">{t("studentsDue")}</div><div className="sms-card-value rust">{studentsDueThisMonth}</div></div>
                 <div className="sms-card"><div className="sms-card-label">{t("uniformFundCollected")}</div><div className="sms-card-value green">{currency(uniformCollectedThisMonth)}</div></div>
                 <div className="sms-card"><div className="sms-card-label">{t("booksFundCollected")}</div><div className="sms-card-value green">{currency(bookCollectedThisMonth)}</div></div>
+              </div>
+
+              <div className="sms-section-title">{t("studentAttendance")} <span className="sms-tag">{t("today")} · {todayStr}</span></div>
+              <div className="sms-cards-row three">
+                <div className="sms-card"><div className="sms-card-label">{t("presentToday")}</div><div className="sms-card-value green">{studentsPresentToday}</div></div>
+                <div className="sms-card"><div className="sms-card-label">{t("absentToday")}</div><div className="sms-card-value rust">{studentsAbsentToday}</div></div>
+                <div className="sms-card"><div className="sms-card-label">{t("notMarkedYet")}</div><div className="sms-card-value">{studentsNotMarkedToday}</div></div>
               </div>
 
               <div className="sms-section-title">{t("staffAttendanceToday")} <span className="sms-tag">{t("today")} · {todayStr}</span></div>
@@ -1893,7 +1904,7 @@ export default function SchoolManagementSystem() {
               <div className="sms-toolbar">
                 <Field label="Staff member">
                   <select className="sms-select" value={effectiveStaffAttId} onChange={(e) => setStaffAttStaffId(e.target.value)}>
-                    {staff.map((s) => <option key={s.id} value={s.id}>{s.name} — {s.role}</option>)}
+                    {staff.filter((s) => s.status === "active").map((s) => <option key={s.id} value={s.id}>{s.name} — {s.role}</option>)}
                   </select>
                 </Field>
                 <Field label="Month"><select className="sms-select" value={staffAttMonthFilter} onChange={(e) => setStaffAttMonthFilter(e.target.value)}>{MONTHS.map((m) => <option key={m}>{m}</option>)}</select></Field>
@@ -2199,7 +2210,7 @@ function AccountForm({ initial, staff, existingAccounts, globalStaffTabAccess, o
         <Field label="Linked staff member (optional)">
           <select className="sms-select" value={form.staffId} onChange={onStaffLinkChange}>
             <option value="">None</option>
-            {staff.map((s) => <option key={s.id} value={s.id}>{s.name} — {s.role}</option>)}
+            {staff.filter((s) => s.status === "active" || s.id === form.staffId).map((s) => <option key={s.id} value={s.id}>{s.name} — {s.role}</option>)}
           </select>
         </Field>
       </div>
@@ -2588,7 +2599,7 @@ function SalaryForm({ initial, staff, onCancel, onSave }) {
     </>}>
       <Field label="Staff member">
         <select className="sms-select" value={form.staffId} onChange={onStaffChange} disabled={isEdit}>
-          {staff.map((s) => <option key={s.id} value={s.id}>{s.name} — {s.role}</option>)}
+          {staff.filter((s) => s.status === "active" || s.id === form.staffId).map((s) => <option key={s.id} value={s.id}>{s.name} — {s.role}</option>)}
         </select>
       </Field>
       <div className="sms-field-row">
@@ -2671,7 +2682,7 @@ function BulkAttendanceForm({ staff, defaultStaffId, defaultMonth, defaultYear, 
     </>}>
       <Field label="Staff member">
         <select className="sms-select" value={form.staffId} onChange={set("staffId")}>
-          {staff.map((s) => <option key={s.id} value={s.id}>{s.name} — {s.role}</option>)}
+          {staff.filter((s) => s.status === "active").map((s) => <option key={s.id} value={s.id}>{s.name} — {s.role}</option>)}
         </select>
       </Field>
       <div className="sms-field-row">
@@ -2723,7 +2734,7 @@ function StaffAttendanceForm({ initial, staff, onCancel, onSave }) {
     </>}>
       <Field label="Staff member">
         <select className="sms-select" value={form.staffId} onChange={set("staffId")} disabled={isEdit}>
-          {staff.map((s) => <option key={s.id} value={s.id}>{s.name} — {s.role}</option>)}
+          {staff.filter((s) => s.status === "active" || s.id === form.staffId).map((s) => <option key={s.id} value={s.id}>{s.name} — {s.role}</option>)}
         </select>
       </Field>
       <Field label="Date"><input className="sms-input" type="date" value={form.date} onChange={set("date")} /></Field>
