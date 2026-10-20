@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import * as XLSX from "xlsx";
+import html2canvas from "html2canvas";
 
 const SCHOOL_NAME = "Habib Shining Star School";
 const SCHOOL_ADDRESS = "Multan, Pakistan";
@@ -38,6 +39,7 @@ const TRANSLATIONS = {
     paid: "Paid", unpaid: "Unpaid", partial: "Partial", pending: "Pending", approved: "Approved", rejected: "Rejected", free: "Free/exempt",
     activeStaff: "Active staff", activeStudents: "Active students", collected: "Collected", overdueStudents: "Overdue students", totalDuesPending: "Total dues pending",
     thisMonthGlance: "This month at a glance", studentsPaidFee: "Students paid fee", studentsDue: "Students due",
+    collectionsThisMonth: "Collections this month", feeCollected: "Fee collected",
     uniformFundCollected: "Uniform fund collected", booksFundCollected: "Books fund collected",
     staffAttendanceToday: "Staff attendance", today: "today", presentToday: "Present today", absentToday: "Absent today", notMarkedYet: "Not marked yet",
     recentAdmissions: "Recent admissions", downloadReport: "⬇ Download full report (Excel)",
@@ -68,6 +70,7 @@ const TRANSLATIONS = {
     paid: "ادا شدہ", unpaid: "غیر ادا شدہ", partial: "جزوی", pending: "زیرِ التوا", approved: "منظور شدہ", rejected: "مسترد شدہ", free: "مفت/مستثنیٰ",
     activeStaff: "فعال عملہ", activeStudents: "فعال طلبہ", collected: "وصول شدہ", overdueStudents: "واجب الادا طلبہ", totalDuesPending: "کل بقایا رقم",
     thisMonthGlance: "اس ماہ کا خلاصہ", studentsPaidFee: "فیس ادا کرنے والے طلبہ", studentsDue: "واجب الادا طلبہ",
+    collectionsThisMonth: "اس ماہ کی وصولیاں", feeCollected: "فیس وصول شدہ",
     uniformFundCollected: "یونیفارم فنڈ وصول شدہ", booksFundCollected: "کتابوں کا فنڈ وصول شدہ",
     staffAttendanceToday: "عملے کی حاضری", today: "آج", presentToday: "آج حاضر", absentToday: "آج غیر حاضر", notMarkedYet: "ابھی درج نہیں ہوا",
     recentAdmissions: "حالیہ داخلے", downloadReport: "⬇ مکمل رپورٹ ڈاؤن لوڈ کریں (ایکسل)",
@@ -236,6 +239,42 @@ function formatTime12h(hhmm) {
   return `${h12}:${String(m).padStart(2, "0")}${secStr} ${period}`;
 }
 
+// Reads an uploaded photo, resizes/compresses it to keep the stored data
+// small (photos are saved inline as base64 text), and resolves to a JPEG
+// data URL. Keeps the student/staff list fast to load even with 50+ photos.
+function readAndCompressPhoto(file, maxDim = 400, quality = 0.8) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Could not read file"));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("Could not load image"));
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > height && width > maxDim) { height = Math.round((height * maxDim) / width); width = maxDim; }
+        else if (height > maxDim) { width = Math.round((width * maxDim) / height); height = maxDim; }
+        const canvas = document.createElement("canvas");
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// Captures a DOM node and triggers a JPG download — used for both student
+// and staff ID cards.
+async function downloadNodeAsJpg(node, filename) {
+  const canvas = await html2canvas(node, { scale: 3, useCORS: true, backgroundColor: "#ffffff" });
+  const link = document.createElement("a");
+  link.download = filename;
+  link.href = canvas.toDataURL("image/jpeg", 0.95);
+  link.click();
+}
+
 const STYLES = `
   @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&family=Noto+Nastaliq+Urdu:wght@400;600;700&display=swap');
 
@@ -281,6 +320,35 @@ const STYLES = `
   }
   .sms-duty-status { font-size: 15px; color: var(--ink); display: flex; flex-direction: column; gap: 4px; }
   .sms-duty-btn { padding: 14px 32px; font-size: 15px; border-radius: 8px; }
+
+  .sms-photo-upload { display: flex; align-items: center; gap: 14px; }
+  .sms-photo-preview { width: 72px; height: 72px; border-radius: 8px; object-fit: cover; border: 1px solid var(--line); background: var(--paper); }
+  .sms-photo-placeholder { width: 72px; height: 72px; border-radius: 8px; border: 1px dashed var(--line); background: var(--paper); display: flex; align-items: center; justify-content: center; color: var(--text-soft); font-size: 22px; }
+
+  .sms-idcard-wrap { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; margin-bottom: 16px; }
+  .sms-idcard {
+    width: 338px; height: 213px; border-radius: 12px; overflow: hidden; position: relative;
+    box-shadow: 0 2px 10px rgba(30,42,68,0.15); font-family: 'Inter', sans-serif; background: #fff; border: 1px solid var(--line);
+  }
+  .sms-idcard-front { display: flex; flex-direction: column; }
+  .sms-idcard-head { background: var(--ink); color: #F6F1E4; padding: 10px 14px; display: flex; flex-direction: column; gap: 1px; }
+  .sms-idcard-head .school { font-family: 'Playfair Display', serif; font-size: 14px; font-weight: 700; line-height: 1.2; }
+  .sms-idcard-head .addr { font-size: 8px; color: var(--gold); letter-spacing: 0.03em; }
+  .sms-idcard-body { flex: 1; display: flex; gap: 12px; align-items: center; padding: 12px 14px; }
+  .sms-idcard-photo { width: 76px; height: 92px; border-radius: 6px; object-fit: cover; border: 2px solid var(--gold); background: var(--paper); flex-shrink: 0; }
+  .sms-idcard-photo-placeholder { width: 76px; height: 92px; border-radius: 6px; border: 2px dashed var(--line); background: var(--paper); flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: var(--text-soft); font-size: 11px; text-align: center; }
+  .sms-idcard-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .sms-idcard-info .name { font-size: 15px; font-weight: 700; color: var(--ink); line-height: 1.2; }
+  .sms-idcard-info .meta { font-size: 11.5px; color: var(--text-soft); }
+  .sms-idcard-info .tag { font-size: 9.5px; color: var(--gold-dark); background: rgba(176,136,80,0.14); padding: 2px 8px; border-radius: 20px; display: inline-block; width: fit-content; margin-top: 2px; }
+  .sms-idcard-foot { background: var(--paper); border-top: 1px solid var(--line); padding: 5px 14px; font-size: 8px; color: var(--text-soft); text-align: center; }
+
+  .sms-idcard-back { padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+  .sms-idcard-back .title { font-family: 'Playfair Display', serif; font-weight: 700; font-size: 12px; color: var(--ink); border-bottom: 1px solid var(--line); padding-bottom: 6px; margin-bottom: 2px; }
+  .sms-idcard-back .row { display: flex; justify-content: space-between; font-size: 11px; gap: 10px; }
+  .sms-idcard-back .row .label { color: var(--text-soft); flex-shrink: 0; }
+  .sms-idcard-back .row .value { color: var(--ink); font-weight: 600; text-align: right; }
+  .sms-idcard-back .note { margin-top: auto; font-size: 8px; color: var(--text-soft); text-align: center; border-top: 1px solid var(--line); padding-top: 6px; }
 
   .sms-mobile-topbar { display: none; }
   .sms-sidebar-overlay { display: none; }
@@ -491,6 +559,86 @@ function Field({ label, children }) {
   );
 }
 
+function IDCardModal({ person, type, onClose }) {
+  const frontRef = React.useRef(null);
+  const backRef = React.useRef(null);
+  const [busy, setBusy] = useState(false);
+  const safeName = (person.name || "card").replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+
+  async function download(ref, side) {
+    if (!ref.current) return;
+    setBusy(true);
+    try {
+      await downloadNodeAsJpg(ref.current, `${safeName}-id-${side}.jpg`);
+    } catch (e) {
+      alert("Couldn't generate the image. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const isStudent = type === "student";
+  const subtitle = isStudent ? `${person.class || ""}${person.section ? "-" + person.section : ""}` : person.role || "";
+  const metaLine = isStudent ? `Roll No: ${person.rollNo || "—"}` : (person.subject || "");
+
+  return (
+    <Modal title={`${isStudent ? "Student" : "Staff"} ID Card — ${person.name}`} wide onClose={onClose}
+      footer={<button className="sms-btn secondary" onClick={onClose}>Close</button>}>
+      <div className="sms-idcard-wrap">
+        <div>
+          <div className="sms-idcard sms-idcard-front" ref={frontRef}>
+            <div className="sms-idcard-head">
+              <div className="school">{SCHOOL_NAME}</div>
+              <div className="addr">{SCHOOL_ADDRESS}</div>
+            </div>
+            <div className="sms-idcard-body">
+              {person.photo ? (
+                <img className="sms-idcard-photo" src={person.photo} alt="" />
+              ) : (
+                <div className="sms-idcard-photo-placeholder">No Photo</div>
+              )}
+              <div className="sms-idcard-info">
+                <div className="name">{person.name}</div>
+                <div className="meta">{metaLine}</div>
+                {subtitle && <span className="tag">{subtitle}</span>}
+              </div>
+            </div>
+            <div className="sms-idcard-foot">{isStudent ? "Student Identity Card" : "Staff Identity Card"}</div>
+          </div>
+          <div className="sms-toolbar" style={{ justifyContent: "center", marginTop: 10 }}>
+            <button className="sms-btn secondary small" disabled={busy} onClick={() => download(frontRef, "front")}>⬇ Download front (JPG)</button>
+          </div>
+        </div>
+
+        <div>
+          <div className="sms-idcard sms-idcard-back" ref={backRef}>
+            <div className="title">{SCHOOL_NAME}</div>
+            {isStudent ? (
+              <>
+                <div className="row"><span className="label">Father's Name</span><span className="value">{person.fatherName || "—"}</span></div>
+                <div className="row"><span className="label">Father's CNIC</span><span className="value">{person.fatherCnic || "—"}</span></div>
+                <div className="row"><span className="label">Parent Phone</span><span className="value">{person.parentPhone || "—"}</span></div>
+                <div className="row"><span className="label">Emergency Contact</span><span className="value">{person.emergencyContact || "—"}</span></div>
+              </>
+            ) : (
+              <>
+                <div className="row"><span className="label">Phone</span><span className="value">{person.phone || "—"}</span></div>
+                <div className="row"><span className="label">Email</span><span className="value">{person.email || "—"}</span></div>
+                <div className="row"><span className="label">Joining Date</span><span className="value">{person.joinDate || "—"}</span></div>
+              </>
+            )}
+            <div className="note">If found, please return to {SCHOOL_NAME}, {SCHOOL_ADDRESS}.</div>
+          </div>
+          <div className="sms-toolbar" style={{ justifyContent: "center", marginTop: 10 }}>
+            <button className="sms-btn secondary small" disabled={busy} onClick={() => download(backRef, "back")}>⬇ Download back (JPG)</button>
+          </div>
+        </div>
+      </div>
+      <div className="sms-subtext" style={{ textAlign: "center" }}>Front and back download as two separate JPG images, ready to print on a two-sided ID card.</div>
+    </Modal>
+  );
+}
+
 function LoginScreen({ settings, onLogin, language, changeLanguage, t }) {
   const hasAccounts = Array.isArray(settings.userAccounts) && settings.userAccounts.length > 0;
   const [role, setRole] = useState("admin");
@@ -631,6 +779,7 @@ export default function SchoolManagementSystem() {
   const [bulkAttModal, setBulkAttModal] = useState(false);
   const [settingsModal, setSettingsModal] = useState(false);
   const [accountModal, setAccountModal] = useState(null);
+  const [idCardModal, setIdCardModal] = useState(null);
   const [showAdmissionLedger, setShowAdmissionLedger] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [overdueModal, setOverdueModal] = useState(false);
@@ -1351,6 +1500,11 @@ export default function SchoolManagementSystem() {
               <div className="sms-cards-row">
                 <div className="sms-card"><div className="sms-card-label">{t("studentsPaidFee")}</div><div className="sms-card-value green">{studentsPaidThisMonth}</div></div>
                 <div className="sms-card"><div className="sms-card-label">{t("studentsDue")}</div><div className="sms-card-value rust">{studentsDueThisMonth}</div></div>
+              </div>
+
+              <div className="sms-section-title">{t("collectionsThisMonth")} <span className="sms-tag">{currentMonth} {currentYear}</span></div>
+              <div className="sms-cards-row three">
+                <div className="sms-card"><div className="sms-card-label">{t("feeCollected")}</div><div className="sms-card-value green">{currency(collectedThisMonth)}</div></div>
                 <div className="sms-card"><div className="sms-card-label">{t("uniformFundCollected")}</div><div className="sms-card-value green">{currency(uniformCollectedThisMonth)}</div></div>
                 <div className="sms-card"><div className="sms-card-label">{t("booksFundCollected")}</div><div className="sms-card-value green">{currency(bookCollectedThisMonth)}</div></div>
               </div>
@@ -1410,11 +1564,12 @@ export default function SchoolManagementSystem() {
                         <td>{s.name}</td><td>{s.role}</td><td>{s.subject}</td><td className="sms-mono">{s.phone}</td>
                         <td>{s.joinDate}</td><td className="sms-mono">{currency(s.salary)}</td>
                         <td><span className={"sms-pill " + s.status}>{s.status}</span>{s.status === "inactive" && (s.inactiveReason || s.inactiveDate) && <span className="sms-subtext">{s.inactiveDate ? `Since ${s.inactiveDate}. ` : ""}{s.inactiveReason}</span>}</td>
-                        <td style={{ display: "flex", gap: 6 }}>
+                        <td style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                           {isAdmin ? (<>
                             <button className="sms-btn secondary small" onClick={() => setStaffModal(s)}>Edit</button>
                             <button className="sms-btn danger small" onClick={() => deleteStaff(s.id)}>Delete</button>
                           </>) : <span className="sms-locked">Admin only</span>}
+                          <button className="sms-btn gold small" onClick={() => setIdCardModal({ person: s, type: "staff" })}>🪪 ID card</button>
                         </td>
                       </tr>
                     ))}
@@ -1511,11 +1666,12 @@ export default function SchoolManagementSystem() {
                                 {!s.feeWaived && discount > 0 && <span className="sms-subtext">discount {currency(discount)}</span>}
                               </td>
                               <td><span className={"sms-pill " + s.status}>{s.status}</span>{s.status === "inactive" && (s.inactiveReason || s.inactiveDate) && <span className="sms-subtext">{s.inactiveDate ? `Since ${s.inactiveDate}. ` : ""}{s.inactiveReason}</span>}</td>
-                              <td style={{ display: "flex", gap: 6 }}>
+                              <td style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                                 {isAdmin ? (<>
                                   <button className="sms-btn secondary small" onClick={() => setStudentModal(s)}>Edit</button>
                                   <button className="sms-btn danger small" onClick={() => deleteStudent(s.id)}>Delete</button>
                                 </>) : <span className="sms-locked">Admin only</span>}
+                                <button className="sms-btn gold small" onClick={() => setIdCardModal({ person: s, type: "student" })}>🪪 ID card</button>
                               </td>
                             </tr>
                           );
@@ -2112,6 +2268,9 @@ export default function SchoolManagementSystem() {
         <AccountForm initial={accountModal} staff={staff} existingAccounts={settings.userAccounts || []} globalStaffTabAccess={settings.staffTabAccess}
           onCancel={() => setAccountModal(null)} onSave={(a) => { upsertAccount(a); setAccountModal(null); }} />
       )}
+      {idCardModal && (
+        <IDCardModal person={idCardModal.person} type={idCardModal.type} onClose={() => setIdCardModal(null)} />
+      )}
 
       {overdueModal && (
         <Modal title={`Overdue fee alerts (${overdueStudentIds.length})`} wide onClose={() => setOverdueModal(false)}
@@ -2285,15 +2444,39 @@ function StaffForm({ initial, onCancel, onSave }) {
     subject: initial.subject || "", phone: initial.phone || "", email: initial.email || "",
     joinDate: initial.joinDate || todayISO(), salary: initial.salary || "", hourlyRate: initial.hourlyRate || "",
     status: initial.status || "active", inactiveReason: initial.inactiveReason || "", inactiveDate: initial.inactiveDate || todayISO(),
+    photo: initial.photo || "",
   });
+  const [photoBusy, setPhotoBusy] = useState(false);
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const needsReason = form.status === "inactive";
   const valid = form.name.trim().length > 0 && (!needsReason || (form.inactiveReason.trim().length > 0 && form.inactiveDate));
+  async function onPhotoChange(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setPhotoBusy(true);
+    try {
+      const dataUrl = await readAndCompressPhoto(file);
+      setForm((f) => ({ ...f, photo: dataUrl }));
+    } catch (err) {
+      alert("Couldn't load that photo. Please try a different image.");
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
   return (
     <Modal title={initial.id ? "Edit staff record" : "Add staff record"} onClose={onCancel} footer={<>
       <button className="sms-btn secondary" onClick={onCancel}>Cancel</button>
       <button className="sms-btn" disabled={!valid} onClick={() => onSave({ ...form, salary: Number(form.salary) || 0, hourlyRate: Number(form.hourlyRate) || 0, inactiveDate: needsReason ? form.inactiveDate : "" })}>Save record</button>
     </>}>
+      <Field label="Staff photo (optional)">
+        <div className="sms-photo-upload">
+          {form.photo ? <img className="sms-photo-preview" src={form.photo} alt="" /> : <div className="sms-photo-placeholder">👤</div>}
+          <div>
+            <input type="file" accept="image/*" onChange={onPhotoChange} disabled={photoBusy} />
+            {form.photo && <button type="button" className="sms-btn secondary small" style={{ marginTop: 6 }} onClick={() => setForm({ ...form, photo: "" })}>Remove photo</button>}
+          </div>
+        </div>
+      </Field>
       <Field label="Full name"><input className="sms-input" value={form.name} onChange={set("name")} placeholder="Anita Sharma" /></Field>
       <div className="sms-field-row">
         <Field label="Role"><select className="sms-select" value={form.role} onChange={set("role")}>
@@ -2339,13 +2522,28 @@ function StudentForm({ initial, onCancel, onSave }) {
     discountType: initial.discountType || "none", discountValue: initial.discountValue || "",
     feeWaived: initial.feeWaived || false, status: initial.status || "active",
     inactiveReason: initial.inactiveReason || "", inactiveDate: initial.inactiveDate || todayISO(),
+    photo: initial.photo || "",
   });
+  const [photoBusy, setPhotoBusy] = useState(false);
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const setBool = (k) => (e) => setForm({ ...form, [k]: e.target.checked });
   const needsReason = form.status === "inactive";
   const valid = form.name.trim().length > 0 && form.rollNo.trim().length > 0 && (!needsReason || (form.inactiveReason.trim().length > 0 && form.inactiveDate));
   const { discount, netFee } = computeNetFee(form.standardFee, form.discountType, form.discountValue);
   const oneTimeFees = (Number(form.registrationFee) || 0) + (Number(form.admissionFee) || 0);
+  async function onPhotoChange(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setPhotoBusy(true);
+    try {
+      const dataUrl = await readAndCompressPhoto(file);
+      setForm((f) => ({ ...f, photo: dataUrl }));
+    } catch (err) {
+      alert("Couldn't load that photo. Please try a different image.");
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
   return (
     <Modal title={initial.id ? "Edit admission" : "New admission"} wide onClose={onCancel} footer={<>
       <button className="sms-btn secondary" onClick={onCancel}>Cancel</button>
@@ -2355,6 +2553,15 @@ function StudentForm({ initial, onCancel, onSave }) {
         inactiveDate: needsReason ? form.inactiveDate : "",
       })}>Save admission</button>
     </>}>
+      <Field label="Student photo (optional)">
+        <div className="sms-photo-upload">
+          {form.photo ? <img className="sms-photo-preview" src={form.photo} alt="" /> : <div className="sms-photo-placeholder">👤</div>}
+          <div>
+            <input type="file" accept="image/*" onChange={onPhotoChange} disabled={photoBusy} />
+            {form.photo && <button type="button" className="sms-btn secondary small" style={{ marginTop: 6 }} onClick={() => setForm({ ...form, photo: "" })}>Remove photo</button>}
+          </div>
+        </div>
+      </Field>
       <Field label="Student name"><input className="sms-input" value={form.name} onChange={set("name")} placeholder="Ahmed Raza" /></Field>
       <div className="sms-field-row">
         <Field label="Class"><select className="sms-select" value={form.class} onChange={set("class")}>{CLASSES.map((c) => <option key={c} value={c}>{c}</option>)}</select></Field>
@@ -2530,16 +2737,36 @@ function ItemForm({ initial, students, onCancel, onSave }) {
     unitPrice: initial.unitPrice ?? "", paidAmount: initial.paidAmount ?? 0, issueDate: initial.issueDate || todayISO(),
     comments: initial.comments || "",
   });
+  const [pickerClass, setPickerClass] = useState("all");
+  const [pickerSearch, setPickerSearch] = useState("");
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const total = (Number(form.quantity) || 0) * (Number(form.unitPrice) || 0);
   function handleSave() { onSave({ ...form, quantity: Number(form.quantity) || 0, unitPrice: Number(form.unitPrice) || 0, paidAmount: Number(form.paidAmount) || 0 }); }
+
+  const pickerStudents = students.filter((s) => {
+    if (s.id === form.studentId) return true; // always keep the currently selected student visible
+    if (pickerClass !== "all" && s.class !== pickerClass) return false;
+    if (pickerSearch.trim() && !((s.name + " " + s.rollNo).toLowerCase().includes(pickerSearch.trim().toLowerCase()))) return false;
+    return true;
+  });
+
   return (
     <Modal title={isEdit ? "Update issue record" : "Add uniform / book issue"} onClose={onCancel} footer={<>
       <button className="sms-btn secondary" onClick={onCancel}>Cancel</button>
       <button className="sms-btn" onClick={handleSave} disabled={!form.studentId}>Save record</button>
     </>}>
+      {!isEdit && (
+        <div className="sms-field-row">
+          <Field label="Filter by class"><select className="sms-select" value={pickerClass} onChange={(e) => setPickerClass(e.target.value)}>
+            <option value="all">All classes</option>
+            {CLASSES.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select></Field>
+          <Field label="Search by name or roll no."><input className="sms-input" value={pickerSearch} onChange={(e) => setPickerSearch(e.target.value)} placeholder="Type to search…" /></Field>
+        </div>
+      )}
       <Field label="Student"><select className="sms-select" value={form.studentId} onChange={set("studentId")} disabled={isEdit}>
-        {students.map((s) => <option key={s.id} value={s.id}>{s.name} — {s.class}{s.section ? "-" + s.section : ""}</option>)}
+        {pickerStudents.map((s) => <option key={s.id} value={s.id}>{s.name} — {s.class}{s.section ? "-" + s.section : ""} (Roll {s.rollNo})</option>)}
+        {pickerStudents.length === 0 && <option value="" disabled>No students match this filter</option>}
       </select></Field>
       <div className="sms-field-row">
         <Field label="Item"><select className="sms-select" value={form.item} onChange={set("item")}>{ITEM_TYPES.map((t) => <option key={t}>{t}</option>)}</select></Field>
