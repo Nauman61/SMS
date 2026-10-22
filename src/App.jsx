@@ -806,34 +806,65 @@ export default function SchoolManagementSystem() {
   const [staffAttYearFilter, setStaffAttYearFilter] = useState(new Date().getFullYear());
 
 
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState(null);
+  const loadInProgressRef = React.useRef(false);
+
+  // Loads everything from storage (Supabase when configured, else local).
+  // Used on first load AND re-run whenever the app regains focus/network,
+  // since data is only fetched into memory when this runs — without this,
+  // a tab left open would keep showing whatever it loaded at open time
+  // even after other devices save new data. Uses a ref (not state) to
+  // guard against overlapping calls, since the auto-refresh listeners are
+  // registered once on mount and would otherwise only ever see stale state.
+  async function loadAllData(showFullScreenLoader) {
+    if (loadInProgressRef.current) return;
+    loadInProgressRef.current = true;
+    if (showFullScreenLoader) setLoading(true); else setRefreshing(true);
+    try {
+      const [s, st, f, it, pc, sal, ledg, satt, satt2, cfg] = await Promise.allSettled([
+        window.storage.get("sms-staff"),
+        window.storage.get("sms-students"),
+        window.storage.get("sms-fees"),
+        window.storage.get("sms-items"),
+        window.storage.get("sms-pettycash"),
+        window.storage.get("sms-salaries"),
+        window.storage.get("sms-ledger"),
+        window.storage.get("sms-student-attendance"),
+        window.storage.get("sms-staff-attendance"),
+        window.storage.get("sms-settings"),
+      ]);
+      if (s.status === "fulfilled" && s.value) setStaff(JSON.parse(s.value.value));
+      if (st.status === "fulfilled" && st.value) setStudents(JSON.parse(st.value.value));
+      if (f.status === "fulfilled" && f.value) setFees(JSON.parse(f.value.value));
+      if (it.status === "fulfilled" && it.value) setItems(JSON.parse(it.value.value));
+      if (pc.status === "fulfilled" && pc.value) setPettyCash(JSON.parse(pc.value.value));
+      if (sal.status === "fulfilled" && sal.value) setSalaries(JSON.parse(sal.value.value));
+      if (ledg.status === "fulfilled" && ledg.value) setLedgerEntries(JSON.parse(ledg.value.value));
+      if (satt.status === "fulfilled" && satt.value) setStudentAttendance(JSON.parse(satt.value.value));
+      if (satt2.status === "fulfilled" && satt2.value) setStaffAttendance(JSON.parse(satt2.value.value));
+      if (cfg.status === "fulfilled" && cfg.value) setSettings((prev) => ({ ...prev, ...JSON.parse(cfg.value.value) }));
+      setLastSyncedAt(new Date());
+    } catch (e) { console.error("Load error", e); }
+    setLoading(false);
+    setRefreshing(false);
+    loadInProgressRef.current = false;
+  }
+
   useEffect(() => {
-    (async () => {
-      try {
-        const [s, st, f, it, pc, sal, ledg, satt, satt2, cfg] = await Promise.allSettled([
-          window.storage.get("sms-staff"),
-          window.storage.get("sms-students"),
-          window.storage.get("sms-fees"),
-          window.storage.get("sms-items"),
-          window.storage.get("sms-pettycash"),
-          window.storage.get("sms-salaries"),
-          window.storage.get("sms-ledger"),
-          window.storage.get("sms-student-attendance"),
-          window.storage.get("sms-staff-attendance"),
-          window.storage.get("sms-settings"),
-        ]);
-        if (s.status === "fulfilled" && s.value) setStaff(JSON.parse(s.value.value));
-        if (st.status === "fulfilled" && st.value) setStudents(JSON.parse(st.value.value));
-        if (f.status === "fulfilled" && f.value) setFees(JSON.parse(f.value.value));
-        if (it.status === "fulfilled" && it.value) setItems(JSON.parse(it.value.value));
-        if (pc.status === "fulfilled" && pc.value) setPettyCash(JSON.parse(pc.value.value));
-        if (sal.status === "fulfilled" && sal.value) setSalaries(JSON.parse(sal.value.value));
-        if (ledg.status === "fulfilled" && ledg.value) setLedgerEntries(JSON.parse(ledg.value.value));
-        if (satt.status === "fulfilled" && satt.value) setStudentAttendance(JSON.parse(satt.value.value));
-        if (satt2.status === "fulfilled" && satt2.value) setStaffAttendance(JSON.parse(satt2.value.value));
-        if (cfg.status === "fulfilled" && cfg.value) setSettings((prev) => ({ ...prev, ...JSON.parse(cfg.value.value) }));
-      } catch (e) { console.error("Load error", e); }
-      setLoading(false);
-    })();
+    loadAllData(true);
+    const onVisible = () => { if (document.visibilityState === "visible") loadAllData(false); };
+    const onFocus = () => loadAllData(false);
+    const onOnline = () => loadAllData(false);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("online", onOnline);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("online", onOnline);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function persist(key, value) {
@@ -1167,7 +1198,17 @@ export default function SchoolManagementSystem() {
   const currentMonth = MONTHS[new Date().getMonth()];
   const currentYear = new Date().getFullYear();
   const thisMonthFees = fees.filter((f) => f.month === currentMonth && f.year === currentYear);
-  const collectedThisMonth = thisMonthFees.reduce((sum, f) => sum + (Number(f.paidAmount) || 0), 0);
+  // "Collected this month" means actual cash received in the current
+  // calendar month (based on when it was paid), not which month's invoice
+  // it happens to be for — so a late September payment collected in
+  // October counts toward October's total, not September's.
+  const collectedThisMonth = fees
+    .filter((f) => {
+      if (!f.paidDate) return false;
+      const d = new Date(f.paidDate);
+      return d.getMonth() === new Date().getMonth() && d.getFullYear() === new Date().getFullYear();
+    })
+    .reduce((sum, f) => sum + (Number(f.paidAmount) || 0), 0);
   const pendingDues = fees.filter((f) => f.status !== "paid" && f.status !== "free").reduce((sum, f) => sum + feeBalance(f), 0);
   const studentsPaidThisMonth = new Set(thisMonthFees.filter((f) => f.status === "paid").map((f) => f.studentId)).size;
   const studentsDueThisMonth = new Set(thisMonthFees.filter((f) => f.status === "unpaid" || f.status === "partial").map((f) => f.studentId)).size;
@@ -1455,7 +1496,9 @@ export default function SchoolManagementSystem() {
           <div className="sms-user-chip">{currentUser.name}<span className="role">{currentUser.role === "admin" ? t("administrator") : t("staff")}</span></div>
           <div className={"sms-sync-badge" + (typeof window !== "undefined" && window.__HSS_STORAGE_MODE__ === "cloud" ? " cloud" : "")}>
             {typeof window !== "undefined" && window.__HSS_STORAGE_MODE__ === "cloud" ? t("syncedCloud") : t("syncedLocal")}
+            {lastSyncedAt && <span style={{ display: "block", marginTop: 2, opacity: 0.75 }}>Last updated {lastSyncedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>}
           </div>
+          <button className="sms-sidebar-link" disabled={refreshing} onClick={() => loadAllData(false)}>{refreshing ? "⏳ Refreshing…" : "🔄 Refresh data"}</button>
           {isAdmin && <button className="sms-sidebar-link" onClick={() => { setSettingsModal(true); setMobileNavOpen(false); }}>{t("settingsAccess")}</button>}
           <button className="sms-sidebar-link" onClick={handleLogout}>{t("logOut")}</button>
         </div>
