@@ -37,7 +37,7 @@ const TRANSLATIONS = {
     approve: "Approve", reject: "Reject", exportExcel: "⬇ Export Excel",
     active: "Active", inactive: "Inactive", present: "Present", absent: "Absent",
     paid: "Paid", unpaid: "Unpaid", partial: "Partial", pending: "Pending", approved: "Approved", rejected: "Rejected", free: "Free/exempt",
-    activeStaff: "Active staff", activeStudents: "Active students", collected: "Collected", overdueStudents: "Overdue students", totalDuesPending: "Total dues pending",
+    activeStaff: "Active staff", activeStudents: "Active students", collected: "Total collected", overdueStudents: "Overdue students", totalDuesPending: "Total dues pending",
     thisMonthGlance: "This month at a glance", studentsPaidFee: "Students paid fee", studentsDue: "Students due",
     collectionsThisMonth: "Collections this month", feeCollected: "Fee collected",
     uniformFundCollected: "Uniform fund collected", booksFundCollected: "Books fund collected",
@@ -68,7 +68,7 @@ const TRANSLATIONS = {
     approve: "منظور کریں", reject: "مسترد کریں", exportExcel: "⬇ ایکسل میں ایکسپورٹ کریں",
     active: "فعال", inactive: "غیر فعال", present: "حاضر", absent: "غیر حاضر",
     paid: "ادا شدہ", unpaid: "غیر ادا شدہ", partial: "جزوی", pending: "زیرِ التوا", approved: "منظور شدہ", rejected: "مسترد شدہ", free: "مفت/مستثنیٰ",
-    activeStaff: "فعال عملہ", activeStudents: "فعال طلبہ", collected: "وصول شدہ", overdueStudents: "واجب الادا طلبہ", totalDuesPending: "کل بقایا رقم",
+    activeStaff: "فعال عملہ", activeStudents: "فعال طلبہ", collected: "کل وصولی", overdueStudents: "واجب الادا طلبہ", totalDuesPending: "کل بقایا رقم",
     thisMonthGlance: "اس ماہ کا خلاصہ", studentsPaidFee: "فیس ادا کرنے والے طلبہ", studentsDue: "واجب الادا طلبہ",
     collectionsThisMonth: "اس ماہ کی وصولیاں", feeCollected: "فیس وصول شدہ",
     uniformFundCollected: "یونیفارم فنڈ وصول شدہ", booksFundCollected: "کتابوں کا فنڈ وصول شدہ",
@@ -1220,6 +1220,10 @@ export default function SchoolManagementSystem() {
   const itemsThisMonth = items.filter((i) => isSameMonth(i.issueDate));
   const uniformCollectedThisMonth = itemsThisMonth.filter((i) => i.item.startsWith("Uniform")).reduce((s, i) => s + (Number(i.paidAmount) || 0), 0);
   const bookCollectedThisMonth = itemsThisMonth.filter((i) => i.item === "Books set" || i.item === "Notebooks").reduce((s, i) => s + (Number(i.paidAmount) || 0), 0);
+  // Grand total across all income streams, for the top summary card —
+  // the "Fee collected" card further down stays fee-only, same as the
+  // Uniform/Books cards each being their own fund.
+  const totalCollectedThisMonth = collectedThisMonth + uniformCollectedThisMonth + bookCollectedThisMonth;
   const todayStr = todayISO();
   const staffAttToday = staffAttendance.filter((a) => a.date === todayStr);
   const staffPresentToday = staffAttToday.filter((a) => !a.absent).length;
@@ -1527,7 +1531,7 @@ export default function SchoolManagementSystem() {
               <div className="sms-cards-row">
                 <div className="sms-card"><div className="sms-card-label">{t("activeStaff")}</div><div className="sms-card-value">{activeStaffCount}</div></div>
                 <div className="sms-card"><div className="sms-card-label">{t("activeStudents")}</div><div className="sms-card-value">{activeStudentCount}</div></div>
-                <div className="sms-card"><div className="sms-card-label">{t("collected")} — {currentMonth}</div><div className="sms-card-value green">{currency(collectedThisMonth)}</div></div>
+                <div className="sms-card"><div className="sms-card-label">{t("collected")} — {currentMonth}</div><div className="sms-card-value green">{currency(totalCollectedThisMonth)}</div></div>
                 <div className={"sms-card" + (overdueStudentIds.length > 0 ? " warn" : "")}>
                   <div className="sms-card-label">{overdueStudentIds.length > 0 ? t("overdueStudents") : t("totalDuesPending")}</div>
                   <div className="sms-card-value rust">{overdueStudentIds.length > 0 ? overdueStudentIds.length : currency(pendingDues)}</div>
@@ -2523,7 +2527,7 @@ function StaffForm({ initial, onCancel, onSave }) {
       <Field label="Full name"><input className="sms-input" value={form.name} onChange={set("name")} placeholder="Anita Sharma" /></Field>
       <div className="sms-field-row">
         <Field label="Role"><select className="sms-select" value={form.role} onChange={set("role")}>
-          {["Teacher","Principal","Vice Principal","Admin staff","Accountant","Librarian","Lab assistant","Support staff"].map((r) => <option key={r}>{r}</option>)}
+          {["Director","CEO","Principal","Vice Principal","Teacher","IT Assistant","Admin staff","Accountant","Librarian","Lab assistant","Support staff"].map((r) => <option key={r}>{r}</option>)}
         </select></Field>
         <Field label="Subject / department"><input className="sms-input" value={form.subject} onChange={set("subject")} placeholder="Mathematics" /></Field>
       </div>
