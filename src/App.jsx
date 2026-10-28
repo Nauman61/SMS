@@ -1210,8 +1210,21 @@ export default function SchoolManagementSystem() {
     })
     .reduce((sum, f) => sum + (Number(f.paidAmount) || 0), 0);
   const pendingDues = fees.filter((f) => f.status !== "paid" && f.status !== "free").reduce((sum, f) => sum + feeBalance(f), 0);
-  const studentsPaidThisMonth = new Set(thisMonthFees.filter((f) => f.status === "paid").map((f) => f.studentId)).size;
-  const studentsDueThisMonth = new Set(thisMonthFees.filter((f) => f.status === "unpaid" || f.status === "partial").map((f) => f.studentId)).size;
+  // Count each student exactly once, even if they ended up with more than
+  // one fee record for the same month (e.g. an auto-generated record plus
+  // a manually-added duplicate) — a student with ANY outstanding record
+  // this month counts as "due", never as both "paid" and "due" at once.
+  const monthFeesByStudent = {};
+  thisMonthFees.forEach((f) => {
+    (monthFeesByStudent[f.studentId] = monthFeesByStudent[f.studentId] || []).push(f);
+  });
+  let studentsPaidThisMonth = 0, studentsDueThisMonth = 0;
+  Object.values(monthFeesByStudent).forEach((records) => {
+    const anyDue = records.some((f) => f.status === "unpaid" || f.status === "partial");
+    const anyPaid = records.some((f) => f.status === "paid");
+    if (anyDue) studentsDueThisMonth++;
+    else if (anyPaid) studentsPaidThisMonth++;
+  });
   const isSameMonth = (dateStr) => {
     if (!dateStr) return false;
     const d = new Date(dateStr);
@@ -2293,7 +2306,7 @@ export default function SchoolManagementSystem() {
 
       {staffModal && <StaffForm initial={staffModal} onCancel={() => setStaffModal(null)} onSave={upsertStaff} />}
       {studentModal && <StudentForm initial={studentModal} onCancel={() => setStudentModal(null)} onSave={upsertStudent} />}
-      {feeModal && <FeeForm initial={feeModal} students={students} settings={settings} onCancel={() => setFeeModal(null)} onSave={upsertFee} />}
+      {feeModal && <FeeForm initial={feeModal} students={students} settings={settings} existingFees={fees} onCancel={() => setFeeModal(null)} onSave={upsertFee} />}
       {itemModal && <ItemForm initial={itemModal} students={students} onCancel={() => setItemModal(null)} onSave={upsertItem} />}
       {pettyModal && <PettyForm initial={pettyModal} onCancel={() => setPettyModal(null)} onSave={upsertPetty} />}
       {salaryModal && <SalaryForm initial={salaryModal} staff={staff} onCancel={() => setSalaryModal(null)} onSave={upsertSalary} />}
@@ -2662,9 +2675,10 @@ function StudentForm({ initial, onCancel, onSave }) {
   );
 }
 
-function FeeForm({ initial, students, settings, onCancel, onSave }) {
+function FeeForm({ initial, students, settings, existingFees, onCancel, onSave }) {
   const isEdit = !!initial.id;
   const firstStudent = students[0];
+  const studentMapLocal = Object.fromEntries(students.map((s) => [s.id, s]));
   const startMonth = initial.month || MONTHS[new Date().getMonth()];
   const [form, setForm] = useState({
     id: initial.id || uid("fee"),
@@ -2707,7 +2721,12 @@ function FeeForm({ initial, students, settings, onCancel, onSave }) {
   const { discount, netFee } = computeNetFee(form.standardFee, form.discountType, form.discountValue);
   const totalDue = form.free ? 0 : netFee + (Number(form.papersFund) || 0) + (Number(form.lateFee) || 0);
 
-  function handleSave() {
+  function hasDuplicate() {
+    if (isEdit || !existingFees) return false;
+    return existingFees.some((f) => f.studentId === form.studentId && f.month === form.month && f.year === Number(form.year));
+  }
+
+  function doSave() {
     if (form.free) {
       onSave({ ...form, year: Number(form.year), discount: 0, netFee: 0, papersFund: 0, lateFee: 0, paidAmount: 0, status: "free", paidDate: "" });
       return;
@@ -2719,6 +2738,15 @@ function FeeForm({ initial, students, settings, onCancel, onSave }) {
       discount, netFee, papersFund: Number(form.papersFund) || 0, lateFee: Number(form.lateFee) || 0,
       paidAmount: paid, status, paidDate: status === "unpaid" ? "" : (form.paidDate || todayISO()),
     });
+  }
+
+  function handleSave() {
+    if (hasDuplicate()) {
+      const name = studentMapLocal[form.studentId]?.name || "This student";
+      const ok = window.confirm(`${name} already has a fee record for ${form.month} ${form.year}. Adding another will double-count their dues and dashboard totals.\n\nIt's usually better to Update the existing record instead.\n\nAdd a second record anyway?`);
+      if (!ok) return;
+    }
+    doSave();
   }
 
   return (
