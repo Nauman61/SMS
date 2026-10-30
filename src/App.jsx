@@ -787,12 +787,16 @@ export default function SchoolManagementSystem() {
   const [autoPopupShown, setAutoPopupShown] = useState(false);
 
   const [staffSearch, setStaffSearch] = useState("");
+  const [staffStatusFilter, setStaffStatusFilter] = useState("all");
   const [studentSearch, setStudentSearch] = useState("");
+  const [admissionsClassFilter, setAdmissionsClassFilter] = useState("all");
   const [itemSearch, setItemSearch] = useState("");
+  const [itemClassFilter, setItemClassFilter] = useState("all");
   const [feeMonthFilter, setFeeMonthFilter] = useState(MONTHS[new Date().getMonth()]);
   const [feeYearFilter, setFeeYearFilter] = useState(new Date().getFullYear());
   const [feeStatusFilter, setFeeStatusFilter] = useState("all");
   const [feeSearch, setFeeSearch] = useState("");
+  const [feeClassFilter, setFeeClassFilter] = useState("all");
   const [pettyMonthFilter, setPettyMonthFilter] = useState(MONTHS[new Date().getMonth()]);
   const [pettyYearFilter, setPettyYearFilter] = useState(new Date().getFullYear());
   const [salaryMonthFilter, setSalaryMonthFilter] = useState(MONTHS[new Date().getMonth()]);
@@ -801,6 +805,9 @@ export default function SchoolManagementSystem() {
   const [attDate, setAttDate] = useState(todayISO());
   const [attClass, setAttClass] = useState(CLASSES[0]);
   const [attDraft, setAttDraft] = useState({});
+  const [attHistoryMonth, setAttHistoryMonth] = useState(MONTHS[new Date().getMonth()]);
+  const [attHistoryYear, setAttHistoryYear] = useState(new Date().getFullYear());
+  const [attHistoryClass, setAttHistoryClass] = useState("all");
   const [staffAttStaffId, setStaffAttStaffId] = useState("");
   const [staffAttMonthFilter, setStaffAttMonthFilter] = useState(MONTHS[new Date().getMonth()]);
   const [staffAttYearFilter, setStaffAttYearFilter] = useState(new Date().getFullYear());
@@ -1269,14 +1276,21 @@ export default function SchoolManagementSystem() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser, loading, overdueStudentIds.length]);
 
-  const filteredStaff = staff.filter((s) => (s.name + s.role + s.subject).toLowerCase().includes(staffSearch.toLowerCase()));
-  const filteredStudents = students.filter((s) => (s.name + s.class + s.rollNo).toLowerCase().includes(studentSearch.toLowerCase()));
+  const filteredStaff = staff.filter((s) => {
+    if (staffStatusFilter !== "all" && s.status !== staffStatusFilter) return false;
+    return (s.name + s.role + s.subject).toLowerCase().includes(staffSearch.toLowerCase());
+  });
+  const filteredStudents = students.filter((s) => {
+    if (admissionsClassFilter !== "all" && s.class !== admissionsClassFilter) return false;
+    return (s.name + s.class + s.rollNo).toLowerCase().includes(studentSearch.toLowerCase());
+  });
   const filteredFees = fees.filter((f) => {
     if (feeMonthFilter !== "all" && f.month !== feeMonthFilter) return false;
     if (f.year !== Number(feeYearFilter)) return false;
     if (feeStatusFilter !== "all" && (feeStatusFilter === "free" ? f.status !== "free" : f.status !== feeStatusFilter)) return false;
+    const st = studentMap[f.studentId];
+    if (feeClassFilter !== "all" && (!st || st.class !== feeClassFilter)) return false;
     if (feeSearch.trim()) {
-      const st = studentMap[f.studentId];
       const haystack = ((st ? st.name : "") + " " + (st ? st.rollNo : "") + " " + (st ? st.class : "")).toLowerCase();
       if (!haystack.includes(feeSearch.trim().toLowerCase())) return false;
     }
@@ -1284,6 +1298,7 @@ export default function SchoolManagementSystem() {
   });
   const filteredItems = items.filter((i) => {
     const st = studentMap[i.studentId];
+    if (itemClassFilter !== "all" && (!st || st.class !== itemClassFilter)) return false;
     return ((st ? st.name : "") + i.item + i.description).toLowerCase().includes(itemSearch.toLowerCase());
   });
   const filteredSalaries = salaries.filter((s) => {
@@ -1321,6 +1336,19 @@ export default function SchoolManagementSystem() {
   const attPresentCount = classStudentsForAttendance.filter((s) => (attendanceForDateByStudent[s.id]?.status || "present") === "present").length;
   const attAbsentCount = classStudentsForAttendance.filter((s) => attendanceForDateByStudent[s.id]?.status === "absent").length;
   const attLeaveCount = classStudentsForAttendance.filter((s) => attendanceForDateByStudent[s.id]?.status === "leave").length;
+
+  const attHistoryFiltered = studentAttendance
+    .filter((a) => {
+      if (!a.date) return false;
+      const d = new Date(a.date);
+      if (MONTHS[d.getMonth()] !== attHistoryMonth || d.getFullYear() !== Number(attHistoryYear)) return false;
+      if (attHistoryClass !== "all") {
+        const st = studentMap[a.studentId];
+        if (!st || st.class !== attHistoryClass) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 
   const effectiveStaffAttId = staffAttStaffId || (staff[0] ? staff[0].id : "");
   const staffAttForStaff = staffAttendance
@@ -1613,6 +1641,11 @@ export default function SchoolManagementSystem() {
             <div className="sms-content">
               <div className="sms-toolbar">
                 <input className="sms-input" placeholder="Search by name, role, subject" value={staffSearch} onChange={(e) => setStaffSearch(e.target.value)} style={{ width: 260 }} />
+                <select className="sms-select" value={staffStatusFilter} onChange={(e) => setStaffStatusFilter(e.target.value)}>
+                  <option value="all">All statuses</option>
+                  <option value="active">Active only</option>
+                  <option value="inactive">Inactive only</option>
+                </select>
                 <button className="sms-btn" onClick={() => setStaffModal({})}>+ Add staff</button>
               </div>
               <div className="sms-ledger-page">
@@ -1703,6 +1736,10 @@ export default function SchoolManagementSystem() {
                 <>
                   <div className="sms-toolbar">
                     <input className="sms-input" placeholder="Search by name, class, roll no." value={studentSearch} onChange={(e) => setStudentSearch(e.target.value)} style={{ width: 260 }} />
+                    <select className="sms-select" value={admissionsClassFilter} onChange={(e) => setAdmissionsClassFilter(e.target.value)}>
+                      <option value="all">All classes</option>
+                      {CLASSES.map((c) => <option key={c} value={c}>Class {c}</option>)}
+                    </select>
                     <button className="sms-btn" onClick={() => setStudentModal({})}>+ New admission</button>
                   </div>
                   <div className="sms-ledger-page">
@@ -1761,6 +1798,10 @@ export default function SchoolManagementSystem() {
               )}
               <div className="sms-toolbar">
                 <input className="sms-input" placeholder="Search by student name, roll no., or class" value={feeSearch} onChange={(e) => setFeeSearch(e.target.value)} style={{ width: 260 }} />
+                <select className="sms-select" value={feeClassFilter} onChange={(e) => setFeeClassFilter(e.target.value)}>
+                  <option value="all">All classes</option>
+                  {CLASSES.map((c) => <option key={c} value={c}>Class {c}</option>)}
+                </select>
                 <select className="sms-select" value={feeMonthFilter} onChange={(e) => setFeeMonthFilter(e.target.value)}>
                   <option value="all">All months</option>
                   {MONTHS.map((m) => <option key={m} value={m}>{m}{PAPERS_FUND_MONTHS.includes(m) ? " (papers fund)" : ""}</option>)}
@@ -1831,6 +1872,10 @@ export default function SchoolManagementSystem() {
             <div className="sms-content">
               <div className="sms-toolbar">
                 <input className="sms-input" placeholder="Search by student or item" value={itemSearch} onChange={(e) => setItemSearch(e.target.value)} style={{ width: 260 }} />
+                <select className="sms-select" value={itemClassFilter} onChange={(e) => setItemClassFilter(e.target.value)}>
+                  <option value="all">All classes</option>
+                  {CLASSES.map((c) => <option key={c} value={c}>Class {c}</option>)}
+                </select>
                 <button className="sms-btn" onClick={() => setItemModal({})} disabled={students.length === 0}>+ Add issue record</button>
               </div>
               <div className="sms-ledger-page">
@@ -2106,6 +2151,37 @@ export default function SchoolManagementSystem() {
                   <button className="sms-btn" onClick={() => { saveStudentAttendanceBulk(attDate, attClass, attDraft); setAttDraft({}); }}>Save attendance for {attDate}</button>
                 </div>
               )}
+
+              <div className="sms-section-title">Attendance history <span className="sms-tag">{attHistoryFiltered.length} records</span></div>
+              <div className="sms-toolbar">
+                <select className="sms-select" value={attHistoryMonth} onChange={(e) => setAttHistoryMonth(e.target.value)}>
+                  {MONTHS.map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+                <input className="sms-input" type="number" style={{ width: 90 }} value={attHistoryYear} onChange={(e) => setAttHistoryYear(e.target.value)} />
+                <select className="sms-select" value={attHistoryClass} onChange={(e) => setAttHistoryClass(e.target.value)}>
+                  <option value="all">All classes</option>
+                  {CLASSES.map((c) => <option key={c} value={c}>Class {c}</option>)}
+                </select>
+              </div>
+              <div className="sms-ledger-page">
+                <table className="sms-table">
+                  <thead><tr><th>Date</th><th>Student</th><th>Class</th><th>Status</th></tr></thead>
+                  <tbody>
+                    {attHistoryFiltered.map((a) => {
+                      const st = studentMap[a.studentId];
+                      return (
+                        <tr key={a.id}>
+                          <td>{a.date}</td>
+                          <td>{st ? st.name : "(removed student)"}</td>
+                          <td>{st ? st.class + (st.section ? "-" + st.section : "") : "—"}</td>
+                          <td><span className={"sms-pill " + (a.status === "present" ? "paid" : a.status === "absent" ? "unpaid" : "partial")}>{a.status}</span></td>
+                        </tr>
+                      );
+                    })}
+                    {attHistoryFiltered.length === 0 && <tr><td colSpan="4" className="sms-empty">No attendance records for {attHistoryMonth} {attHistoryYear}{attHistoryClass !== "all" ? ` in Class ${attHistoryClass}` : ""}.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </>
         )}
@@ -2679,6 +2755,9 @@ function FeeForm({ initial, students, settings, existingFees, onCancel, onSave }
   const isEdit = !!initial.id;
   const firstStudent = students[0];
   const studentMapLocal = Object.fromEntries(students.map((s) => [s.id, s]));
+  const [pickerClass, setPickerClass] = useState("all");
+  const [pickerSection, setPickerSection] = useState("all");
+  const [pickerSearch, setPickerSearch] = useState("");
   const startMonth = initial.month || MONTHS[new Date().getMonth()];
   const [form, setForm] = useState({
     id: initial.id || uid("fee"),
@@ -2749,14 +2828,55 @@ function FeeForm({ initial, students, settings, existingFees, onCancel, onSave }
     doSave();
   }
 
+  const pickerMatches = students.filter((s) => {
+    if (pickerClass !== "all" && s.class !== pickerClass) return false;
+    if (pickerSection !== "all" && s.section !== pickerSection) return false;
+    if (pickerSearch.trim() && !((s.name + " " + s.rollNo).toLowerCase().includes(pickerSearch.trim().toLowerCase()))) return false;
+    return true;
+  });
+  useEffect(() => {
+    if (isEdit) return;
+    const filtersActive = pickerClass !== "all" || pickerSection !== "all" || pickerSearch.trim() !== "";
+    if (!filtersActive) return;
+    if (pickerMatches.length === 0) return;
+    if (!pickerMatches.some((s) => s.id === form.studentId)) {
+      onStudentChange({ target: { value: pickerMatches[0].id } });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickerClass, pickerSection, pickerSearch]);
+
   return (
     <Modal title={isEdit ? "Update fee record" : "Add fee record"} wide onClose={onCancel} footer={<>
       <button className="sms-btn secondary" onClick={onCancel}>Cancel</button>
       <button className="sms-btn" onClick={handleSave} disabled={!form.studentId}>Save record</button>
     </>}>
+      {!isEdit && (() => {
+        const sectionsInClass = pickerClass === "all" ? [] : [...new Set(students.filter((s) => s.class === pickerClass && s.section).map((s) => s.section))].sort();
+        return (
+          <>
+            <div className="sms-field-row three">
+              <Field label="Filter by class"><select className="sms-select" value={pickerClass} onChange={(e) => { setPickerClass(e.target.value); setPickerSection("all"); }}>
+                <option value="all">All classes</option>
+                {CLASSES.map((c) => <option key={c} value={c}>Class {c}</option>)}
+              </select></Field>
+              <Field label="Section"><select className="sms-select" value={pickerSection} onChange={(e) => setPickerSection(e.target.value)} disabled={pickerClass === "all" || sectionsInClass.length === 0}>
+                <option value="all">{pickerClass === "all" ? "Pick a class first" : sectionsInClass.length === 0 ? "No sections" : "All sections"}</option>
+                {sectionsInClass.map((sec) => <option key={sec} value={sec}>{pickerClass}-{sec}</option>)}
+              </select></Field>
+              <Field label="Search name / roll no."><input className="sms-input" value={pickerSearch} onChange={(e) => setPickerSearch(e.target.value)} placeholder="Type to search…" /></Field>
+            </div>
+          </>
+        );
+      })()}
       <Field label="Student">
         <select className="sms-select" value={form.studentId} onChange={onStudentChange} disabled={isEdit}>
-          {students.map((s) => <option key={s.id} value={s.id}>{s.name} — {s.class}{s.section ? "-" + s.section : ""}</option>)}
+          {students.filter((s) => {
+            if (isEdit || s.id === form.studentId) return true;
+            if (pickerClass !== "all" && s.class !== pickerClass) return false;
+            if (pickerSection !== "all" && s.section !== pickerSection) return false;
+            if (pickerSearch.trim() && !((s.name + " " + s.rollNo).toLowerCase().includes(pickerSearch.trim().toLowerCase()))) return false;
+            return true;
+          }).map((s) => <option key={s.id} value={s.id}>{s.name} — {s.class}{s.section ? "-" + s.section : ""} (Roll {s.rollNo})</option>)}
         </select>
       </Field>
       <div className="sms-field-row">
