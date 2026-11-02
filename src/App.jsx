@@ -183,7 +183,7 @@ function computeItemStatus(item) {
 function stampNew(user) { return { enteredBy: user.name, enteredRole: user.role, enteredAt: new Date().toISOString() }; }
 function stampEdit(user) { return { editedBy: user.name, editedRole: user.role, editedAt: new Date().toISOString() }; }
 
-function salaryNet(sal) { return (Number(sal.baseSalary) || 0) + (Number(sal.bonus) || 0) - (Number(sal.deduction) || 0); }
+function salaryNet(sal) { return (Number(sal.baseSalary) || 0) + (Number(sal.bonus) || 0) - (Number(sal.deduction) || 0) - (Number(sal.advance) || 0); }
 function salaryBalance(sal) { return salaryNet(sal) - (Number(sal.paidAmount) || 0); }
 function computeSalaryStatus(sal) {
   const total = salaryNet(sal);
@@ -1033,7 +1033,7 @@ export default function SchoolManagementSystem() {
         const lwpDeduction = Math.round(lwpDays * dailyRate);
         newRecords.push({
           id: uid("sal"), staffId: st.id, month, year,
-          baseSalary: regularPay + overtimePay, bonus: 0, deduction: Math.round(lwpDeduction + advanceSum + otherSum),
+          baseSalary: regularPay + overtimePay, bonus: 0, advance: Math.round(advanceSum), deduction: Math.round(lwpDeduction + otherSum),
           paidAmount: 0, status: "unpaid", paidDate: "",
           comments: `Auto-calculated from attendance: ${regularHrs}h regular + ${overtimeHrs}h overtime, ${lwpDays} LWP day(s), ${absentDays} absent day(s), advance ${currency(advanceSum)}, other ${currency(otherSum)}.` + (pendingCount > 0 ? ` NOTE: ${pendingCount} attendance entr${pendingCount > 1 ? "ies" : "y"} this month are still pending/rejected approval and were NOT included — approve them and regenerate if needed.` : ""),
           ...stampNew(currentUser),
@@ -1041,7 +1041,7 @@ export default function SchoolManagementSystem() {
       } else {
         newRecords.push({
           id: uid("sal"), staffId: st.id, month, year,
-          baseSalary: Number(st.salary) || 0, bonus: 0, deduction: 0,
+          baseSalary: Number(st.salary) || 0, bonus: 0, advance: 0, deduction: 0,
           paidAmount: 0, status: "unpaid", paidDate: "", comments: "",
           ...stampNew(currentUser),
         });
@@ -1435,7 +1435,7 @@ export default function SchoolManagementSystem() {
     const st = staffMap[s.staffId];
     return {
       Staff: st ? st.name : "(removed staff)", Role: st ? st.role : "",
-      Month: s.month, Year: s.year, "Base Salary": s.baseSalary, Bonus: s.bonus, Deduction: s.deduction,
+      Month: s.month, Year: s.year, "Base Salary": s.baseSalary, Bonus: s.bonus, Advance: s.advance || 0, Deduction: s.deduction,
       "Net Salary": salaryNet(s), "Amount Paid": s.paidAmount, Balance: salaryBalance(s),
       Status: salaryDueState(s), "Paid Date": s.paidDate || "", Comments: s.comments || "",
       "Entered By": s.enteredBy || "", "Entered At": formatDateTime(s.enteredAt),
@@ -1996,7 +1996,7 @@ export default function SchoolManagementSystem() {
               </div>
               <div className="sms-ledger-page">
                 <table className="sms-table">
-                  <thead><tr><th>Staff</th><th>Month</th><th>Base salary</th><th>Bonus</th><th>Deduction</th><th>Net salary</th><th>Paid</th><th>Balance</th><th>Status</th><th>Entered by</th><th></th></tr></thead>
+                  <thead><tr><th>Staff</th><th>Month</th><th>Base salary</th><th>Bonus</th><th>Advance</th><th>Deduction</th><th>Net salary</th><th>Paid</th><th>Balance</th><th>Status</th><th>Entered by</th><th></th></tr></thead>
                   <tbody>
                     {filteredSalaries.map((s) => {
                       const st = staffMap[s.staffId];
@@ -2008,6 +2008,7 @@ export default function SchoolManagementSystem() {
                           <td>{s.month} {s.year}</td>
                           <td className="sms-mono">{currency(s.baseSalary)}</td>
                           <td className="sms-mono">{s.bonus > 0 ? currency(s.bonus) : "—"}</td>
+                          <td className="sms-mono">{s.advance > 0 ? currency(s.advance) : "—"}</td>
                           <td className="sms-mono">{s.deduction > 0 ? currency(s.deduction) : "—"}</td>
                           <td className="sms-mono">{currency(salaryNet(s))}</td>
                           <td className="sms-mono">{currency(s.paidAmount)}</td>
@@ -2023,7 +2024,7 @@ export default function SchoolManagementSystem() {
                         </tr>
                       );
                     })}
-                    {filteredSalaries.length === 0 && <tr><td colSpan="11" className="sms-empty">No salary records for this filter.</td></tr>}
+                    {filteredSalaries.length === 0 && <tr><td colSpan="12" className="sms-empty">No salary records for this filter.</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -3004,6 +3005,7 @@ function SalaryForm({ initial, staff, onCancel, onSave }) {
     year: initial.year || new Date().getFullYear(),
     baseSalary: initial.baseSalary ?? (firstStaff ? firstStaff.salary : 0),
     bonus: initial.bonus ?? 0,
+    advance: initial.advance ?? 0,
     deduction: initial.deduction ?? 0,
     paidAmount: initial.paidAmount ?? 0,
     paidDate: initial.paidDate || "",
@@ -3017,14 +3019,14 @@ function SalaryForm({ initial, staff, onCancel, onSave }) {
     setForm({ ...form, staffId: sid, baseSalary: st ? st.salary : form.baseSalary });
   }
 
-  const net = (Number(form.baseSalary) || 0) + (Number(form.bonus) || 0) - (Number(form.deduction) || 0);
+  const net = (Number(form.baseSalary) || 0) + (Number(form.bonus) || 0) - (Number(form.advance) || 0) - (Number(form.deduction) || 0);
 
   function handleSave() {
     const paid = Number(form.paidAmount) || 0;
     const status = paid <= 0 ? "unpaid" : paid >= net ? "paid" : "partial";
     onSave({
       ...form, year: Number(form.year), baseSalary: Number(form.baseSalary) || 0,
-      bonus: Number(form.bonus) || 0, deduction: Number(form.deduction) || 0,
+      bonus: Number(form.bonus) || 0, advance: Number(form.advance) || 0, deduction: Number(form.deduction) || 0,
       paidAmount: paid, status, paidDate: status === "unpaid" ? "" : (form.paidDate || todayISO()),
     });
   }
@@ -3043,13 +3045,16 @@ function SalaryForm({ initial, staff, onCancel, onSave }) {
         <Field label="Month"><select className="sms-select" value={form.month} onChange={set("month")}>{MONTHS.map((m) => <option key={m}>{m}</option>)}</select></Field>
         <Field label="Year"><input className="sms-input" type="number" value={form.year} onChange={set("year")} /></Field>
       </div>
-      <div className="sms-field-row three">
+      <div className="sms-field-row">
         <Field label="Base salary"><input className="sms-input" type="number" value={form.baseSalary} onChange={set("baseSalary")} /></Field>
         <Field label="Bonus (optional)"><input className="sms-input" type="number" value={form.bonus} onChange={set("bonus")} /></Field>
+      </div>
+      <div className="sms-field-row">
+        <Field label="Advance (optional)"><input className="sms-input" type="number" value={form.advance} onChange={set("advance")} /></Field>
         <Field label="Deduction (optional)"><input className="sms-input" type="number" value={form.deduction} onChange={set("deduction")} /></Field>
       </div>
       <div className="sms-computed">
-        Base {currency(form.baseSalary)} + bonus {currency(form.bonus)} - deduction {currency(form.deduction)} = net salary {currency(net)}
+        Base {currency(form.baseSalary)} + bonus {currency(form.bonus)} - advance {currency(form.advance)} - deduction {currency(form.deduction)} = net salary {currency(net)}
       </div>
       <div className="sms-field-row">
         <Field label="Amount paid"><input className="sms-input" type="number" value={form.paidAmount} onChange={set("paidAmount")} /></Field>
