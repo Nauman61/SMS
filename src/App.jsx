@@ -805,6 +805,7 @@ export default function SchoolManagementSystem() {
   const [attDate, setAttDate] = useState(todayISO());
   const [attClass, setAttClass] = useState(CLASSES[0]);
   const [attDraft, setAttDraft] = useState({});
+  const [attReasonDraft, setAttReasonDraft] = useState({});
   const [attHistoryMonth, setAttHistoryMonth] = useState(MONTHS[new Date().getMonth()]);
   const [attHistoryYear, setAttHistoryYear] = useState(new Date().getFullYear());
   const [attHistoryClass, setAttHistoryClass] = useState("all");
@@ -1058,16 +1059,22 @@ export default function SchoolManagementSystem() {
   }
   function deleteLedgerEntry(id) { saveLedger(ledgerEntries.filter((l) => l.id !== id)); }
 
-  function saveStudentAttendanceBulk(date, cls, draft) {
+  function saveStudentAttendanceBulk(date, cls, draft, reasons) {
     const activeInClass = students.filter((s) => s.class === cls && s.status === "active");
     let next = [...studentAttendance];
     activeInClass.forEach((st) => {
-      const statusVal = draft[st.id] || "present";
       const idx = next.findIndex((a) => a.studentId === st.id && a.date === date);
+      // Untouched students keep whatever was already saved for this date
+      // (previously they were silently reset to "present" on every save).
+      const statusVal = draft[st.id] || (idx >= 0 ? next[idx].status : "present");
+      // The reason only applies to absences; anyone else has it cleared.
+      const reasonVal = statusVal === "absent"
+        ? (reasons && reasons[st.id] !== undefined ? reasons[st.id] : (idx >= 0 ? next[idx].comments || "" : "")).trim()
+        : "";
       if (idx >= 0) {
-        next[idx] = { ...next[idx], status: statusVal, ...stampEdit(currentUser) };
+        next[idx] = { ...next[idx], status: statusVal, comments: reasonVal, ...stampEdit(currentUser) };
       } else {
-        next.push({ id: uid("att"), studentId: st.id, date, status: statusVal, comments: "", ...stampNew(currentUser) });
+        next.push({ id: uid("att"), studentId: st.id, date, status: statusVal, comments: reasonVal, ...stampNew(currentUser) });
       }
     });
     saveStudentAttendance(next);
@@ -1451,7 +1458,7 @@ export default function SchoolManagementSystem() {
     const st = studentMap[a.studentId];
     return {
       Date: a.date, Student: st ? st.name : "(removed student)", Class: st ? (st.class + (st.section ? "-" + st.section : "")) : "",
-      Status: a.status, Comments: a.comments || "", "Entered By": a.enteredBy || "", "Entered At": formatDateTime(a.enteredAt),
+      Status: a.status, "Absence Reason": a.status === "absent" ? (a.comments || "") : "", "Entered By": a.enteredBy || "", "Entered At": formatDateTime(a.enteredAt),
     };
   }
   function exportStudentAttendance() { downloadWorkbook([{ name: "Student Attendance", rows: studentAttendance.map(studentAttRowExport) }], "student-attendance.xlsx"); }
@@ -2105,8 +2112,8 @@ export default function SchoolManagementSystem() {
             </div>
             <div className="sms-content">
               <div className="sms-toolbar">
-                <Field label="Date"><input className="sms-input" type="date" value={attDate} onChange={(e) => { setAttDate(e.target.value); setAttDraft({}); }} /></Field>
-                <Field label="Class"><select className="sms-select" value={attClass} onChange={(e) => { setAttClass(e.target.value); setAttDraft({}); }}>{CLASSES.map((c) => <option key={c} value={c}>{c}</option>)}</select></Field>
+                <Field label="Date"><input className="sms-input" type="date" value={attDate} onChange={(e) => { setAttDate(e.target.value); setAttDraft({}); setAttReasonDraft({}); }} /></Field>
+                <Field label="Class"><select className="sms-select" value={attClass} onChange={(e) => { setAttClass(e.target.value); setAttDraft({}); setAttReasonDraft({}); }}>{CLASSES.map((c) => <option key={c} value={c}>{c}</option>)}</select></Field>
               </div>
 
               <div className="sms-cards-row three">
@@ -2118,12 +2125,12 @@ export default function SchoolManagementSystem() {
               <div className="sms-section-title">Mark attendance <span className="sms-tag">{attClass} · {attDate}</span></div>
               <div className="sms-toolbar">
                 <button className="sms-btn secondary small" onClick={() => {
-                  const all = {}; classStudentsForAttendance.forEach((s) => { all[s.id] = "present"; }); setAttDraft(all);
+                  const all = {}; classStudentsForAttendance.forEach((s) => { all[s.id] = "present"; }); setAttDraft(all); setAttReasonDraft({});
                 }}>Mark all present</button>
               </div>
               <div className="sms-ledger-page">
                 <table className="sms-table">
-                  <thead><tr><th>Name</th><th>Roll no.</th><th>Status</th></tr></thead>
+                  <thead><tr><th>Name</th><th>Roll no.</th><th>Status</th><th>Reason for absence</th></tr></thead>
                   <tbody>
                     {classStudentsForAttendance.map((s) => {
                       const existing = attendanceForDateByStudent[s.id];
@@ -2139,16 +2146,23 @@ export default function SchoolManagementSystem() {
                               <option value="leave">Leave</option>
                             </select>
                           </td>
+                          <td>
+                            {current === "absent" ? (
+                              <input className="sms-input" style={{ width: "100%", minWidth: 200 }} placeholder="Why is this student absent? (e.g. sick, family event)"
+                                value={attReasonDraft[s.id] !== undefined ? attReasonDraft[s.id] : (existing && existing.status === "absent" ? existing.comments || "" : "")}
+                                onChange={(e) => setAttReasonDraft({ ...attReasonDraft, [s.id]: e.target.value })} />
+                            ) : <span className="sms-subtext">—</span>}
+                          </td>
                         </tr>
                       );
                     })}
-                    {classStudentsForAttendance.length === 0 && <tr><td colSpan="3" className="sms-empty">No active students in this class.</td></tr>}
+                    {classStudentsForAttendance.length === 0 && <tr><td colSpan="4" className="sms-empty">No active students in this class.</td></tr>}
                   </tbody>
                 </table>
               </div>
               {classStudentsForAttendance.length > 0 && (
                 <div className="sms-toolbar" style={{ marginTop: 12 }}>
-                  <button className="sms-btn" onClick={() => { saveStudentAttendanceBulk(attDate, attClass, attDraft); setAttDraft({}); }}>Save attendance for {attDate}</button>
+                  <button className="sms-btn" onClick={() => { saveStudentAttendanceBulk(attDate, attClass, attDraft, attReasonDraft); setAttDraft({}); setAttReasonDraft({}); }}>Save attendance for {attDate}</button>
                 </div>
               )}
 
@@ -2165,7 +2179,7 @@ export default function SchoolManagementSystem() {
               </div>
               <div className="sms-ledger-page">
                 <table className="sms-table">
-                  <thead><tr><th>Date</th><th>Student</th><th>Class</th><th>Status</th></tr></thead>
+                  <thead><tr><th>Date</th><th>Student</th><th>Class</th><th>Status</th><th>Reason</th></tr></thead>
                   <tbody>
                     {attHistoryFiltered.map((a) => {
                       const st = studentMap[a.studentId];
@@ -2175,10 +2189,11 @@ export default function SchoolManagementSystem() {
                           <td>{st ? st.name : "(removed student)"}</td>
                           <td>{st ? st.class + (st.section ? "-" + st.section : "") : "—"}</td>
                           <td><span className={"sms-pill " + (a.status === "present" ? "paid" : a.status === "absent" ? "unpaid" : "partial")}>{a.status}</span></td>
+                          <td>{a.status === "absent" ? (a.comments ? a.comments : <span className="sms-subtext">No reason recorded</span>) : "—"}</td>
                         </tr>
                       );
                     })}
-                    {attHistoryFiltered.length === 0 && <tr><td colSpan="4" className="sms-empty">No attendance records for {attHistoryMonth} {attHistoryYear}{attHistoryClass !== "all" ? ` in Class ${attHistoryClass}` : ""}.</td></tr>}
+                    {attHistoryFiltered.length === 0 && <tr><td colSpan="5" className="sms-empty">No attendance records for {attHistoryMonth} {attHistoryYear}{attHistoryClass !== "all" ? ` in Class ${attHistoryClass}` : ""}.</td></tr>}
                   </tbody>
                 </table>
               </div>
