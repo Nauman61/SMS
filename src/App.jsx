@@ -384,6 +384,7 @@ const STYLES = `
 
   .sms-content { padding: 24px 32px 40px 32px; }
 
+  .sms-toast.error { background: var(--rust); }
   .sms-toast { position: fixed; top: 18px; right: 18px; z-index: 200; background: var(--green); color: #fff; padding: 12px 18px; border-radius: 8px; font-size: 13px; max-width: 360px; box-shadow: 0 4px 14px rgba(0,0,0,0.18); }
 
   .sms-alert-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--rust-bg); border: 1px solid var(--rust); color: var(--rust); border-radius: 8px; padding: 12px 16px; font-size: 13px; font-weight: 500; margin-bottom: 22px; }
@@ -767,6 +768,7 @@ export default function SchoolManagementSystem() {
   const [staffAttendance, setStaffAttendance] = useState([]);
   const [settings, setSettings] = useState({ papersFundAmount: 1000, lateFeeAmount: 200, adminPassword: "admin123", staffPassword: "staff123", ledgerAccountantName: "", ledgerTimePeriod: "", staffTabAccess: {}, userAccounts: [] });
   const [toast, setToast] = useState(null);
+  const [toastError, setToastError] = useState(false);
 
   const [staffModal, setStaffModal] = useState(null);
   const [studentModal, setStudentModal] = useState(null);
@@ -817,6 +819,8 @@ export default function SchoolManagementSystem() {
   const [refreshing, setRefreshing] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState(null);
   const loadInProgressRef = React.useRef(false);
+  const pendingSavesRef = React.useRef(0);   // saves currently being written to the database
+  const dataVersionRef = React.useRef(0);    // bumps on every save, so a refresh can tell its data went stale
 
   // Loads everything from storage (Supabase when configured, else local).
   // Used on first load AND re-run whenever the app regains focus/network,
@@ -827,7 +831,11 @@ export default function SchoolManagementSystem() {
   // registered once on mount and would otherwise only ever see stale state.
   async function loadAllData(showFullScreenLoader) {
     if (loadInProgressRef.current) return;
+    // Never refresh over a save that hasn't reached the database yet — that
+    // could put the old copy back on screen and make new entries vanish.
+    if (!showFullScreenLoader && pendingSavesRef.current > 0) return;
     loadInProgressRef.current = true;
+    const versionAtStart = dataVersionRef.current;
     if (showFullScreenLoader) setLoading(true); else setRefreshing(true);
     try {
       const [s, st, f, it, pc, sal, ledg, satt, satt2, cfg] = await Promise.allSettled([
@@ -842,6 +850,12 @@ export default function SchoolManagementSystem() {
         window.storage.get("sms-staff-attendance"),
         window.storage.get("sms-settings"),
       ]);
+      // If something was saved while we were fetching, these results are
+      // older than what's on screen — throw them away rather than overwrite.
+      const stale = !showFullScreenLoader && (dataVersionRef.current !== versionAtStart || pendingSavesRef.current > 0);
+      if (stale) {
+        // keep current state
+      } else {
       if (s.status === "fulfilled" && s.value) setStaff(JSON.parse(s.value.value));
       if (st.status === "fulfilled" && st.value) setStudents(JSON.parse(st.value.value));
       if (f.status === "fulfilled" && f.value) setFees(JSON.parse(f.value.value));
@@ -853,6 +867,7 @@ export default function SchoolManagementSystem() {
       if (satt2.status === "fulfilled" && satt2.value) setStaffAttendance(JSON.parse(satt2.value.value));
       if (cfg.status === "fulfilled" && cfg.value) setSettings((prev) => ({ ...prev, ...JSON.parse(cfg.value.value) }));
       setLastSyncedAt(new Date());
+      }
     } catch (e) { console.error("Load error", e); }
     setLoading(false);
     setRefreshing(false);
@@ -876,7 +891,19 @@ export default function SchoolManagementSystem() {
   }, []);
 
   async function persist(key, value) {
-    try { await window.storage.set(key, JSON.stringify(value)); } catch (e) { console.error("Save error", e); }
+    pendingSavesRef.current += 1;
+    dataVersionRef.current += 1;
+    try {
+      const res = await window.storage.set(key, JSON.stringify(value));
+      // The cloud backend returns null (instead of throwing) when the
+      // database rejects a write, so treat that as a failure too.
+      if (res === null || res === undefined) throw new Error("storage returned no result");
+    } catch (e) {
+      console.error("Save error", e);
+      showToast("⚠ This change could NOT be saved to the database. Check your internet connection and try again — it is only on this screen right now.", true);
+    } finally {
+      pendingSavesRef.current -= 1;
+    }
   }
   function saveStaff(next) { setStaff(next); persist("sms-staff", next); }
   function saveStudents(next) { setStudents(next); persist("sms-students", next); }
@@ -898,7 +925,7 @@ export default function SchoolManagementSystem() {
     saveSettings({ ...settings, userAccounts: (settings.userAccounts || []).filter((a) => a.id !== id) });
   }
 
-  function showToast(msg) { setToast(msg); setTimeout(() => setToast(null), 7000); }
+  function showToast(msg, isError) { setToast(msg); setToastError(!!isError); setTimeout(() => setToast(null), isError ? 15000 : 7000); }
 
   function handleLogin(user) {
     setCurrentUser(user);
@@ -1140,12 +1167,13 @@ export default function SchoolManagementSystem() {
     const todayStr = todayISO();
     const stamp = stampNew(currentUser);
     const newRecords = [];
+    let skippedFuture = 0, skippedExisting = 0, skippedSundays = 0;
     for (let day = 1; day <= daysInMonth; day++) {
       const dateStr = `${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-      if (dateStr > todayStr) continue;
-      if (existingDates.has(dateStr)) continue;
+      if (dateStr > todayStr) { skippedFuture++; continue; }
+      if (existingDates.has(dateStr)) { skippedExisting++; continue; }
       const dow = new Date(year, monthIdx, day).getDay(); // 0 = Sunday
-      if (excludeSundays && dow === 0) continue;
+      if (excludeSundays && dow === 0) { skippedSundays++; continue; }
       newRecords.push({
         id: uid("satt"), staffId, date: dateStr, month, year,
         checkIn: startTime, checkOut: endTime, absent: false, lwp: false, advance: 0, other: 0,
@@ -1156,7 +1184,7 @@ export default function SchoolManagementSystem() {
       });
     }
     if (newRecords.length) saveStaffAttendance([...staffAttendance, ...newRecords]);
-    return newRecords.length;
+    return { added: newRecords.length, skippedFuture, skippedExisting, skippedSundays };
   }
 
   function generateMonthlyFees() {
@@ -1357,7 +1385,12 @@ export default function SchoolManagementSystem() {
     })
     .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 
-  const effectiveStaffAttId = staffAttStaffId || (staff[0] ? staff[0].id : "");
+  // Must always be someone who actually appears in the (active-only) dropdown,
+  // otherwise the screen shows one name while using a hidden inactive person.
+  const activeStaffForAtt = staff.filter((s) => s.status === "active");
+  const effectiveStaffAttId = (staffAttStaffId && activeStaffForAtt.some((s) => s.id === staffAttStaffId))
+    ? staffAttStaffId
+    : (activeStaffForAtt[0] ? activeStaffForAtt[0].id : "");
   const staffAttForStaff = staffAttendance
     .filter((a) => a.staffId === effectiveStaffAttId && a.month === staffAttMonthFilter && a.year === Number(staffAttYearFilter))
     .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
@@ -1511,7 +1544,7 @@ export default function SchoolManagementSystem() {
   return (
     <div className={"sms-root" + (language === "ur" ? " rtl" : "")} dir={language === "ur" ? "rtl" : "ltr"}>
       <style>{STYLES}</style>
-      {toast && <div className="sms-toast">{toast}</div>}
+      {toast && <div className={"sms-toast" + (toastError ? " error" : "")}>{toast}</div>}
 
       <div className="sms-mobile-topbar">
         <button className="sms-hamburger-btn" onClick={() => setMobileNavOpen(true)} aria-label="Open menu">☰</button>
@@ -2408,9 +2441,22 @@ export default function SchoolManagementSystem() {
         <BulkAttendanceForm staff={staff} defaultStaffId={effectiveStaffAttId} defaultMonth={staffAttMonthFilter} defaultYear={staffAttYearFilter}
           onCancel={() => setBulkAttModal(false)}
           onGenerate={(opts) => {
-            const n = bulkGenerateAttendance(opts);
+            const r = bulkGenerateAttendance(opts);
+            const who = (staff.find((s) => s.id === opts.staffId) || {}).name || "this staff member";
             setBulkAttModal(false);
-            alert(n > 0 ? `Marked ${n} day(s) of attendance for ${opts.month} ${opts.year}. Days that already had an entry were left untouched.` : "Nothing to add — every day this month either already has an entry, is a future date, or was excluded.");
+            // Show the person and month that were just filled in, so the result is visible straight away.
+            setStaffAttStaffId(opts.staffId);
+            setStaffAttMonthFilter(opts.month);
+            setStaffAttYearFilter(opts.year);
+            if (r.added > 0) {
+              showToast(`✅ Marked ${r.added} day(s) for ${who} — ${opts.month} ${opts.year}.` + (r.skippedExisting ? ` ${r.skippedExisting} day(s) already had an entry and were left alone.` : ""));
+            } else {
+              const why = [];
+              if (r.skippedExisting) why.push(`${r.skippedExisting} day(s) already have an entry`);
+              if (r.skippedFuture) why.push(`${r.skippedFuture} day(s) are still in the future`);
+              if (r.skippedSundays) why.push(`${r.skippedSundays} Sunday(s) skipped`);
+              showToast(`Nothing was added for ${who} — ${opts.month} ${opts.year}: ${why.join(", ") || "no days to fill"}.`, true);
+            }
           }} />
       )}
       {settingsModal && isAdmin && (
@@ -2997,7 +3043,7 @@ function ItemForm({ initial, students, onCancel, onSave }) {
 
 function SalaryForm({ initial, staff, onCancel, onSave }) {
   const isEdit = !!initial.id;
-  const firstStaff = staff[0];
+  const firstStaff = staff.find((s) => s.status === "active") || staff[0];
   const [form, setForm] = useState({
     id: initial.id || uid("sal"),
     staffId: initial.staffId || (firstStaff ? firstStaff.id : ""),
@@ -3104,8 +3150,9 @@ function LedgerForm({ initial, onCancel, onSave }) {
 }
 
 function BulkAttendanceForm({ staff, defaultStaffId, defaultMonth, defaultYear, onCancel, onGenerate }) {
+  const activeStaff = staff.filter((s) => s.status === "active");
   const [form, setForm] = useState({
-    staffId: defaultStaffId || (staff[0] ? staff[0].id : ""),
+    staffId: activeStaff.some((s) => s.id === defaultStaffId) ? defaultStaffId : (activeStaff[0] ? activeStaff[0].id : ""),
     month: defaultMonth || MONTHS[new Date().getMonth()],
     year: defaultYear || new Date().getFullYear(),
     startTime: "07:00",
@@ -3115,7 +3162,7 @@ function BulkAttendanceForm({ staff, defaultStaffId, defaultMonth, defaultYear, 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const setBool = (k) => (e) => setForm({ ...form, [k]: e.target.checked });
   const totalHrs = computeHoursFromTimes(form.startTime, form.endTime);
-  const valid = !!form.staffId;
+  const valid = !!form.staffId && activeStaff.some((s) => s.id === form.staffId);
 
   return (
     <Modal title="Bulk mark a month's attendance" onClose={onCancel} footer={<>
@@ -3145,7 +3192,7 @@ function BulkAttendanceForm({ staff, defaultStaffId, defaultMonth, defaultYear, 
 
 function StaffAttendanceForm({ initial, staff, onCancel, onSave }) {
   const isEdit = !!initial.id;
-  const firstStaff = staff[0];
+  const firstStaff = staff.find((s) => s.status === "active") || staff[0];
   const [form, setForm] = useState({
     id: initial.id || uid("satt"), staffId: initial.staffId || (firstStaff ? firstStaff.id : ""),
     date: initial.date || todayISO(), checkIn: initial.checkIn || "", checkOut: initial.checkOut || "",
