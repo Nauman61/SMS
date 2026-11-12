@@ -156,7 +156,7 @@ function computeNetFee(standardFee, discountType, discountValue) {
 }
 function feeTotalDue(fee) {
   if (fee.status === "free") return 0;
-  return (Number(fee.netFee) || 0) + (Number(fee.papersFund) || 0) + (Number(fee.lateFee) || 0);
+  return (Number(fee.netFee) || 0) + (Number(fee.papersFund) || 0) + (Number(fee.annualFund) || 0) + (Number(fee.lateFee) || 0);
 }
 function feeBalance(fee) {
   if (fee.status === "free") return 0;
@@ -766,7 +766,7 @@ export default function SchoolManagementSystem() {
   const [ledgerEntries, setLedgerEntries] = useState([]);
   const [studentAttendance, setStudentAttendance] = useState([]);
   const [staffAttendance, setStaffAttendance] = useState([]);
-  const [settings, setSettings] = useState({ papersFundAmount: 1000, lateFeeAmount: 200, adminPassword: "admin123", staffPassword: "staff123", ledgerAccountantName: "", ledgerTimePeriod: "", staffTabAccess: {}, userAccounts: [] });
+  const [settings, setSettings] = useState({ papersFundAmount: 1000, lateFeeAmount: 200, annualFundAmount: 0, annualFundMonth: "", adminPassword: "admin123", staffPassword: "staff123", ledgerAccountantName: "", ledgerTimePeriod: "", staffTabAccess: {}, userAccounts: [] });
   const [toast, setToast] = useState(null);
   const [toastError, setToastError] = useState(false);
 
@@ -1200,7 +1200,7 @@ export default function SchoolManagementSystem() {
         newRecords.push({
           id: uid("fee"), studentId: st.id, month, year,
           standardFee: Number(st.standardFee) || 0, discountType: "none", discountValue: 0, discount: 0, netFee: 0,
-          papersFund: 0, papersFundEnabled: false, lateFee: 0, lateFeeEnabled: false,
+          papersFund: 0, papersFundEnabled: false, annualFund: 0, annualFundEnabled: false, lateFee: 0, lateFeeEnabled: false,
           paidAmount: 0, status: "free", paidDate: "", comments: "Fee waived (financial assistance)",
           ...stampNew(currentUser),
         });
@@ -1213,6 +1213,8 @@ export default function SchoolManagementSystem() {
         discount, netFee,
         papersFund: PAPERS_FUND_MONTHS.includes(month) ? Number(settings.papersFundAmount) || 0 : 0,
         papersFundEnabled: PAPERS_FUND_MONTHS.includes(month),
+        annualFund: (settings.annualFundMonth && month === settings.annualFundMonth) ? Number(settings.annualFundAmount) || 0 : 0,
+        annualFundEnabled: !!(settings.annualFundMonth && month === settings.annualFundMonth),
         lateFee: 0, lateFeeEnabled: false,
         paidAmount: 0, status: "unpaid", paidDate: "", comments: "",
         ...stampNew(currentUser),
@@ -1437,7 +1439,7 @@ export default function SchoolManagementSystem() {
     return {
       Student: st ? st.name : "(removed student)", Class: st ? st.class : "",
       Month: f.month, Year: f.year, "Standard Fee": f.standardFee, Discount: f.discount,
-      "Net Fee": f.netFee, "Papers Fund": f.papersFund, "Late Fee": f.lateFee,
+      "Net Fee": f.netFee, "Papers Fund": f.papersFund, "Annual Fund": f.annualFund || 0, "Late Fee": f.lateFee,
       "Total Due": feeTotalDue(f), "Amount Paid": f.paidAmount, Balance: feeBalance(f),
       Status: feeDueState(f), "Paid Date": f.paidDate || "", Comments: f.comments || "",
       "Entered By": f.enteredBy || "", "Entered At": formatDateTime(f.enteredAt),
@@ -1618,6 +1620,11 @@ export default function SchoolManagementSystem() {
                   <div className="sms-card-value rust">{overdueStudentIds.length > 0 ? overdueStudentIds.length : currency(pendingDues)}</div>
                 </div>
               </div>
+              {settings.annualFundMonth && currentMonth === settings.annualFundMonth && Number(settings.annualFundAmount) > 0 && (
+                <div className="sms-alert-banner" style={{ background: "var(--amber-bg)", border: "1px solid var(--amber)", color: "var(--amber)" }}>
+                  <span>📄 {currentMonth} is the annual fund month — {currency(settings.annualFundAmount)} is added when you generate this month's fees. It can be waived per student on their fee record.</span>
+                </div>
+              )}
               {PAPERS_FUND_MONTHS.includes(currentMonth) && (
                 <div className="sms-alert-banner" style={{ background: "var(--amber-bg)", border: "1px solid var(--amber)", color: "var(--amber)" }}>
                   <span>📄 {currentMonth} is a papers fund month — {currency(settings.papersFundAmount)} is suggested when generating fees. Papers fund and late fee are optional per student and can be waived for financial assistance.</span>
@@ -1844,7 +1851,7 @@ export default function SchoolManagementSystem() {
                 </select>
                 <select className="sms-select" value={feeMonthFilter} onChange={(e) => setFeeMonthFilter(e.target.value)}>
                   <option value="all">All months</option>
-                  {MONTHS.map((m) => <option key={m} value={m}>{m}{PAPERS_FUND_MONTHS.includes(m) ? " (papers fund)" : ""}</option>)}
+                  {MONTHS.map((m) => <option key={m} value={m}>{m}{PAPERS_FUND_MONTHS.includes(m) ? " (papers fund)" : ""}{settings.annualFundMonth && m === settings.annualFundMonth ? " (annual fund)" : ""}</option>)}
                 </select>
                 <input className="sms-input" type="number" style={{ width: 90 }} value={feeYearFilter} onChange={(e) => setFeeYearFilter(e.target.value)} />
                 <select className="sms-select" value={feeStatusFilter} onChange={(e) => setFeeStatusFilter(e.target.value)}>
@@ -1866,7 +1873,7 @@ export default function SchoolManagementSystem() {
               </div>
               <div className="sms-ledger-page">
                 <table className="sms-table">
-                  <thead><tr><th>Student</th><th>Month</th><th>Net fee</th><th>Papers fund</th><th>Late fee</th><th>Total due</th><th>Paid</th><th>Balance</th><th>Status</th><th>Entered by</th><th></th></tr></thead>
+                  <thead><tr><th>Student</th><th>Month</th><th>Net fee</th><th>Papers fund</th><th>Annual fund</th><th>Late fee</th><th>Total due</th><th>Paid</th><th>Balance</th><th>Status</th><th>Entered by</th><th></th></tr></thead>
                   <tbody>
                     {filteredFees.map((f) => {
                       const st = studentMap[f.studentId];
@@ -1880,6 +1887,7 @@ export default function SchoolManagementSystem() {
                           <td>{f.month} {f.year}</td>
                           <td className="sms-mono">{f.status === "free" ? "—" : currency(f.netFee)}{f.discount > 0 && f.status !== "free" && <span className="sms-subtext">std {currency(f.standardFee)}</span>}</td>
                           <td className="sms-mono">{f.papersFund > 0 ? <span className="sms-pill fund">{currency(f.papersFund)}</span> : "—"}</td>
+                          <td className="sms-mono">{f.annualFund > 0 ? <span className="sms-pill fund">{currency(f.annualFund)}</span> : "—"}</td>
                           <td className="sms-mono">{f.lateFee > 0 ? currency(f.lateFee) : "—"}</td>
                           <td className="sms-mono">{currency(feeTotalDue(f))}</td>
                           <td className="sms-mono">{currency(f.paidAmount)}</td>
@@ -1895,7 +1903,7 @@ export default function SchoolManagementSystem() {
                         </tr>
                       );
                     })}
-                    {filteredFees.length === 0 && <tr><td colSpan="11" className="sms-empty">No fee records for this filter.</td></tr>}
+                    {filteredFees.length === 0 && <tr><td colSpan="12" className="sms-empty">No fee records for this filter.</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -2618,6 +2626,14 @@ function SettingsForm({ settings, onCancel, onSave }) {
         <Field label="Late fee amount"><input className="sms-input" type="number" value={form.lateFeeAmount} onChange={set("lateFeeAmount")} /></Field>
       </div>
       <div className="sms-field-row">
+        <Field label="Annual fund amount"><input className="sms-input" type="number" value={form.annualFundAmount} onChange={set("annualFundAmount")} /></Field>
+        <Field label="Annual fund month"><select className="sms-select" value={form.annualFundMonth || ""} onChange={set("annualFundMonth")}>
+          <option value="">Manual only (never added automatically)</option>
+          {MONTHS.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select></Field>
+      </div>
+      <div className="sms-subtext" style={{ marginTop: -6 }}>If you pick a month, the annual fund is added automatically when you generate fees for that month (not for fee-exempt students). It can still be switched off per student on their fee record.</div>
+      <div className="sms-field-row">
         <Field label="Admin password"><input className="sms-input" value={form.adminPassword} onChange={set("adminPassword")} /></Field>
         <Field label="Staff access code"><input className="sms-input" value={form.staffPassword} onChange={set("staffPassword")} /></Field>
       </div>
@@ -2830,6 +2846,9 @@ function FeeForm({ initial, students, settings, existingFees, onCancel, onSave }
     discountValue: initial.discountValue ?? (firstStudent ? firstStudent.discountValue : 0),
     papersFundEnabled: initial.papersFundEnabled ?? PAPERS_FUND_MONTHS.includes(startMonth),
     papersFund: initial.papersFund ?? (PAPERS_FUND_MONTHS.includes(startMonth) ? settings.papersFundAmount : 0),
+    // Editing an older record must not silently start charging the annual fund.
+    annualFundEnabled: initial.annualFundEnabled ?? (!isEdit && !!settings.annualFundMonth && startMonth === settings.annualFundMonth),
+    annualFund: initial.annualFund ?? ((!isEdit && settings.annualFundMonth && startMonth === settings.annualFundMonth) ? Number(settings.annualFundAmount) || 0 : 0),
     lateFeeEnabled: initial.lateFeeEnabled ?? false,
     lateFee: initial.lateFee ?? 0,
     paidAmount: initial.paidAmount ?? 0, paidDate: initial.paidDate || "",
@@ -2848,7 +2867,13 @@ function FeeForm({ initial, students, settings, existingFees, onCancel, onSave }
   function onMonthChange(e) {
     const month = e.target.value;
     const enable = PAPERS_FUND_MONTHS.includes(month);
-    setForm({ ...form, month, papersFundEnabled: enable, papersFund: enable ? settings.papersFundAmount : 0 });
+    const annualEnable = !!settings.annualFundMonth && month === settings.annualFundMonth;
+    setForm({ ...form, month, papersFundEnabled: enable, papersFund: enable ? settings.papersFundAmount : 0,
+      annualFundEnabled: annualEnable, annualFund: annualEnable ? Number(settings.annualFundAmount) || 0 : 0 });
+  }
+  function toggleAnnualFund(e) {
+    const on = e.target.checked;
+    setForm({ ...form, annualFundEnabled: on, annualFund: on ? Number(settings.annualFundAmount) || 0 : 0 });
   }
   function togglePapersFund(e) {
     const on = e.target.checked;
@@ -2860,7 +2885,7 @@ function FeeForm({ initial, students, settings, existingFees, onCancel, onSave }
   }
 
   const { discount, netFee } = computeNetFee(form.standardFee, form.discountType, form.discountValue);
-  const totalDue = form.free ? 0 : netFee + (Number(form.papersFund) || 0) + (Number(form.lateFee) || 0);
+  const totalDue = form.free ? 0 : netFee + (Number(form.papersFund) || 0) + (Number(form.annualFund) || 0) + (Number(form.lateFee) || 0);
 
   function hasDuplicate() {
     if (isEdit || !existingFees) return false;
@@ -2869,14 +2894,14 @@ function FeeForm({ initial, students, settings, existingFees, onCancel, onSave }
 
   function doSave() {
     if (form.free) {
-      onSave({ ...form, year: Number(form.year), discount: 0, netFee: 0, papersFund: 0, lateFee: 0, paidAmount: 0, status: "free", paidDate: "" });
+      onSave({ ...form, year: Number(form.year), discount: 0, netFee: 0, papersFund: 0, annualFund: 0, annualFundEnabled: false, lateFee: 0, paidAmount: 0, status: "free", paidDate: "" });
       return;
     }
     const paid = Number(form.paidAmount) || 0;
     const status = paid <= 0 ? "unpaid" : paid >= totalDue ? "paid" : "partial";
     onSave({
       ...form, year: Number(form.year), standardFee: Number(form.standardFee) || 0, discountValue: Number(form.discountValue) || 0,
-      discount, netFee, papersFund: Number(form.papersFund) || 0, lateFee: Number(form.lateFee) || 0,
+      discount, netFee, papersFund: Number(form.papersFund) || 0, annualFund: Number(form.annualFund) || 0, lateFee: Number(form.lateFee) || 0,
       paidAmount: paid, status, paidDate: status === "unpaid" ? "" : (form.paidDate || todayISO()),
     });
   }
@@ -2943,7 +2968,7 @@ function FeeForm({ initial, students, settings, existingFees, onCancel, onSave }
       </Field>
       <div className="sms-field-row">
         <Field label="Month"><select className="sms-select" value={form.month} onChange={onMonthChange}>
-          {MONTHS.map((m) => <option key={m} value={m}>{m}{PAPERS_FUND_MONTHS.includes(m) ? " (papers fund)" : ""}</option>)}
+          {MONTHS.map((m) => <option key={m} value={m}>{m}{PAPERS_FUND_MONTHS.includes(m) ? " (papers fund)" : ""}{settings.annualFundMonth && m === settings.annualFundMonth ? " (annual fund)" : ""}</option>)}
         </select></Field>
         <Field label="Year"><input className="sms-input" type="number" value={form.year} onChange={set("year")} /></Field>
       </div>
@@ -2965,11 +2990,14 @@ function FeeForm({ initial, students, settings, existingFees, onCancel, onSave }
           <div className="sms-checkbox-row"><input type="checkbox" checked={form.papersFundEnabled} onChange={togglePapersFund} id="pf" /><label htmlFor="pf">Charge papers fund this month (optional — waive for poor students)</label></div>
           {form.papersFundEnabled && <Field label="Papers fund amount"><input className="sms-input" type="number" value={form.papersFund} onChange={set("papersFund")} /></Field>}
 
+          <div className="sms-checkbox-row"><input type="checkbox" checked={form.annualFundEnabled} onChange={toggleAnnualFund} id="af" /><label htmlFor="af">Charge annual fund (optional — waive for poor students)</label></div>
+          {form.annualFundEnabled && <Field label="Annual fund amount"><input className="sms-input" type="number" value={form.annualFund} onChange={set("annualFund")} /></Field>}
+
           <div className="sms-checkbox-row"><input type="checkbox" checked={form.lateFeeEnabled} onChange={toggleLateFee} id="lf" /><label htmlFor="lf">Charge late fee (optional — waive for poor students)</label></div>
           {form.lateFeeEnabled && <Field label="Late fee amount"><input className="sms-input" type="number" value={form.lateFee} onChange={set("lateFee")} /></Field>}
 
           <div className="sms-computed">
-            Net fee {currency(netFee)}{discount > 0 ? ` (discount ${currency(discount)})` : ""} + papers fund {currency(form.papersFund)} + late fee {currency(form.lateFee)} = total due {currency(totalDue)}
+            Net fee {currency(netFee)}{discount > 0 ? ` (discount ${currency(discount)})` : ""} + papers fund {currency(form.papersFund)} + annual fund {currency(form.annualFund)} + late fee {currency(form.lateFee)} = total due {currency(totalDue)}
           </div>
           <div className="sms-field-row">
             <Field label="Amount paid"><input className="sms-input" type="number" value={form.paidAmount} onChange={set("paidAmount")} /></Field>
